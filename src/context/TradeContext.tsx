@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Trade, TradeStats, BitcoinComparison, TimePeriod, PortfolioPerformance, PortfolioSettings } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -22,48 +22,32 @@ export const usePortfolio = () => {
 interface TradeContextType {
   trades: Trade[];
   addTrade: (trade: Omit<Trade, 'id' | 'isActive'>) => void;
-  updateTrade: (trade: Trade) => void;
-  closeTrade: (id: string, exitPrice: number) => void;
+  updateTrade: (id: string, updatedTrade: Partial<Trade>) => void;
+  closeTrade: (id: string, exitPrice: number, exitDate?: string) => void;
+  closePartialTrade: (id: string, exitPrice: number, exitQuantity: number, notes?: string) => void;
+  setTrailingStop: (id: string, trailingAmount: number, trailingType: 'percentage' | 'fixed') => void;
+  updateTrailingStops: () => void;
   updateStopLoss: (id: string, newStopLoss: number) => void;
   deleteTrade: (id: string) => void;
-  importTrades: (trades: Trade[]) => void;
-  calculateRisk: (entryPrice: number, stopLoss: number, quantity: number, quantityType: 'coins' | 'dollars', portfolioValue: number, isShort: boolean) => number;
-  getTradeStats: () => TradeStats;
+  importTrades: (importedTrades: Trade[]) => void;
+  calculateRisk: (entryPrice: number, stopLoss: number, quantity: number, quantityType: 'coins' | 'dollars', portfolioValue: number, isShort?: boolean) => number;
+  getTradeStats: (period?: TimePeriod) => TradeStats;
   getBitcoinComparison: (period?: TimePeriod) => BitcoinComparison;
   yearStartBalance: number;
-  setYearStartBalance: (value: number) => void;
+  setYearStartBalance: React.Dispatch<React.SetStateAction<number>>;
   monthStartBalance: number;
-  setMonthStartBalance: (value: number) => void;
+  setMonthStartBalance: React.Dispatch<React.SetStateAction<number>>;
   quarterStartBalance: number;
-  setQuarterStartBalance: (value: number) => void;
+  setQuarterStartBalance: React.Dispatch<React.SetStateAction<number>>;
   allTimeStartBalance: number;
-  setAllTimeStartBalance: (value: number) => void;
-  calculatePositionFromRisk: (
-    entryPrice: number, 
-    stopLoss: number, 
-    desiredRiskPercent: number, 
-    portfolioValue: number, 
-    quantityType: 'coins' | 'dollars',
-    isShort: boolean
-  ) => number;
-  calculateStopLossFromRisk: (
-    entryPrice: number,
-    quantity: number,
-    desiredRiskPercent: number,
-    portfolioValue: number,
-    quantityType: 'coins' | 'dollars',
-    isShort: boolean
-  ) => number;
-  calculatePositionFromDollarRisk: (
-    entryPrice: number,
-    stopLoss: number,
-    dollarRiskAmount: number,
-    quantityType: 'coins' | 'dollars',
-    isShort: boolean
-  ) => number;
+  setAllTimeStartBalance: React.Dispatch<React.SetStateAction<number>>;
+  calculatePositionFromRisk: (entryPrice: number, stopLoss: number, riskPercentage: number, portfolioValue: number, quantityType: 'coins' | 'dollars', isShort?: boolean) => number;
+  calculateStopLossFromRisk: (entryPrice: number, quantity: number, riskPercentage: number, portfolioValue: number, quantityType: 'coins' | 'dollars', isShort?: boolean) => number;
+  calculatePositionFromDollarRisk: (entryPrice: number, stopLoss: number, dollarRisk: number, quantityType: 'coins' | 'dollars', isShort?: boolean) => number;
   portfolioSettings: PortfolioSettings;
   setPortfolioSettings: (settings: PortfolioSettings) => void;
-  getPortfolioPerformance: () => PortfolioPerformance[];
+  getPortfolioPerformance: (timeRange: TimePeriod) => PortfolioPerformance[];
+  calculateCurrentPortfolioValue: () => number;
 }
 
 const TradeContext = createContext<TradeContextType | undefined>(undefined);
@@ -135,6 +119,57 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     };
   });
 
+  // Calculate current portfolio value based on trades
+  const calculateCurrentPortfolioValue = useCallback(() => {
+    // Start with the initial balance from portfolio settings
+    let currentValue = portfolioSettings.initialBalance;
+    
+    // Process all closed trades
+    const closedTrades = trades.filter(trade => !trade.isActive && trade.exitPrice);
+    closedTrades.forEach(trade => {
+      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+      
+      // Calculate actual quantity in coins if input is in dollars
+      const actualQuantity = trade.quantityType === 'dollars' 
+        ? trade.quantity / trade.entryPrice 
+        : trade.quantity;
+      
+      // Calculate profit/loss
+      const profitLoss = (trade.exitPrice! - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+      
+      // Add profit/loss to current value
+      currentValue += profitLoss;
+    });
+    
+    // Process partial exits
+    trades.forEach(trade => {
+      if (trade.partialExits && trade.partialExits.length > 0) {
+        const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+        
+        trade.partialExits.forEach(exit => {
+          // Calculate actual quantity for this exit
+          const actualExitQuantity = trade.quantityType === 'dollars'
+            ? exit.exitQuantity / trade.entryPrice
+            : exit.exitQuantity;
+          
+          // Calculate profit/loss for this partial exit
+          const profitLoss = (exit.exitPrice - trade.entryPrice) * actualExitQuantity * (isShort ? -1 : 1);
+          
+          // Add profit/loss to current value
+          currentValue += profitLoss;
+        });
+      }
+    });
+    
+    return currentValue;
+  }, [trades, portfolioSettings.initialBalance]);
+
+  // Update portfolio value whenever trades change
+  useEffect(() => {
+    const newPortfolioValue = calculateCurrentPortfolioValue();
+    setPortfolioValue(newPortfolioValue);
+  }, [trades, calculateCurrentPortfolioValue]);
+
   useEffect(() => {
     localStorage.setItem('trades', JSON.stringify(trades));
   }, [trades]);
@@ -172,23 +207,189 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     setTrades([...trades, newTrade]);
   };
 
-  const updateTrade = (updatedTrade: Trade) => {
+  const updateTrade = (id: string, updatedTrade: Partial<Trade>) => {
     setTrades(trades.map(trade => 
-      trade.id === updatedTrade.id ? updatedTrade : trade
+      trade.id === id ? { ...trade, ...updatedTrade } : trade
     ));
   };
 
-  const closeTrade = (id: string, exitPrice: number) => {
+  const closeTrade = (id: string, exitPrice: number, exitDate?: string) => {
     setTrades(trades.map(trade => 
       trade.id === id 
         ? { 
             ...trade, 
             isActive: false, 
             exitPrice, 
-            exitDate: new Date().toISOString() 
+            exitDate: exitDate ? new Date(`${exitDate}T00:00:00`).toISOString() : new Date().toISOString() 
           } 
         : trade
     ));
+  };
+
+  // New function for partial trade closure
+  const closePartialTrade = (id: string, exitPrice: number, exitQuantity: number, notes?: string) => {
+    setTrades(trades.map(trade => {
+      if (trade.id !== id) return trade;
+      
+      // Calculate remaining quantity after partial exit
+      const originalQuantity = trade.originalQuantity || trade.quantity;
+      const currentRemaining = trade.remainingQuantity || trade.quantity;
+      
+      // Ensure we're not trying to close more than what's available
+      const validExitQuantity = Math.min(exitQuantity, currentRemaining);
+      const newRemainingQuantity = currentRemaining - validExitQuantity;
+      
+      // Create a new partial exit record
+      const partialExit = {
+        id: uuidv4(),
+        exitDate: new Date().toISOString(),
+        exitPrice,
+        exitQuantity: validExitQuantity,
+        notes
+      };
+      
+      // If closing the entire remaining position, mark as inactive
+      if (newRemainingQuantity <= 0) {
+        return {
+          ...trade,
+          isActive: false,
+          exitPrice,
+          exitDate: new Date().toISOString(),
+          remainingQuantity: 0,
+          originalQuantity,
+          partialExits: [...(trade.partialExits || []), partialExit]
+        };
+      }
+      
+      // Otherwise, update the remaining quantity and add to partial exits
+      return {
+        ...trade,
+        remainingQuantity: newRemainingQuantity,
+        originalQuantity,
+        partialExits: [...(trade.partialExits || []), partialExit]
+      };
+    }));
+  };
+  
+  // Set up a trailing stop for a trade
+  const setTrailingStop = (id: string, trailingAmount: number, trailingType: 'percentage' | 'fixed') => {
+    setTrades(trades.map(trade => {
+      if (trade.id !== id) return trade;
+      
+      // For a new trailing stop, set the highest price to the current entry price
+      // In a real app, you would use the current market price instead
+      const highestPrice = trade.highestPrice || trade.entryPrice;
+      
+      // Calculate the new stop loss based on trailing amount
+      let newStopLoss = trade.stopLoss;
+      if (trailingType === 'percentage') {
+        // For percentage trailing stops, calculate based on percentage of highest price
+        const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+        if (isShort) {
+          // For short positions, stop loss is above entry
+          newStopLoss = highestPrice * (1 + trailingAmount / 100);
+        } else {
+          // For long positions, stop loss is below entry
+          newStopLoss = highestPrice * (1 - trailingAmount / 100);
+        }
+      } else {
+        // For fixed trailing stops, simply add/subtract the fixed amount
+        const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+        if (isShort) {
+          // For short positions, stop loss is above entry
+          newStopLoss = highestPrice + trailingAmount;
+        } else {
+          // For long positions, stop loss is below entry
+          newStopLoss = highestPrice - trailingAmount;
+        }
+      }
+      
+      return {
+        ...trade,
+        isTrailingStop: true,
+        trailingAmount,
+        trailingType,
+        highestPrice,
+        stopLoss: newStopLoss
+      };
+    }));
+  };
+  
+  // Update all trailing stops based on current market prices
+  const updateTrailingStops = () => {
+    // Since we don't have current prices passed in, we'll need to fetch them
+    // For now, we'll just skip this functionality until we implement price fetching
+    console.log('Trailing stop updates require current price data');
+    
+    // In a real implementation, we would:
+    // 1. Fetch current prices for all cryptocurrencies in active trades
+    // 2. Update the trailing stops based on those prices
+    
+    // This is a placeholder for future implementation
+    /*
+    setTrades(trades.map(trade => {
+      // Skip trades that don't have trailing stops or are not active
+      if (!trade.isTrailingStop || !trade.isActive) return trade;
+      
+      // Get current price for this cryptocurrency
+      const currentPrice = currentPrices[trade.coinId];
+      if (!currentPrice) return trade; // Skip if no price available
+      
+      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+      
+      // For long positions, we only care about price increases
+      // For short positions, we only care about price decreases
+      if ((isShort && currentPrice >= trade.entryPrice) || 
+          (!isShort && currentPrice <= trade.entryPrice)) {
+        return trade;
+      }
+      
+      // Update highest/lowest price if needed
+      let updatedTrade = { ...trade };
+      
+      if (isShort) {
+        // For shorts, we track the lowest price
+        if (!trade.lowestPrice || currentPrice < trade.lowestPrice) {
+          updatedTrade.lowestPrice = currentPrice;
+        }
+      } else {
+        // For longs, we track the highest price
+        if (!trade.highestPrice || currentPrice > trade.highestPrice) {
+          updatedTrade.highestPrice = currentPrice;
+        }
+      }
+      
+      // Calculate new stop loss based on trailing amount
+      const referencePrice = isShort ? updatedTrade.lowestPrice : updatedTrade.highestPrice;
+      
+      if (referencePrice) {
+        let newStopLoss;
+        
+        if (trade.trailingType === 'percentage') {
+          // Calculate percentage-based trailing stop
+          const trailingDistance = referencePrice * (trade.trailingAmount / 100);
+          newStopLoss = isShort 
+            ? referencePrice * (1 + trade.trailingAmount / 100) // For shorts, stop is above the lowest price
+            : referencePrice * (1 - trade.trailingAmount / 100); // For longs, stop is below the highest price
+        } else {
+          // Calculate fixed-amount trailing stop
+          newStopLoss = isShort
+            ? referencePrice + trade.trailingAmount // For shorts, stop is above the lowest price
+            : referencePrice - trade.trailingAmount; // For longs, stop is below the highest price
+        }
+        
+        // Only update stop loss if the new one is better than the current one
+        // For longs: better means higher stop loss
+        // For shorts: better means lower stop loss
+        if ((isShort && newStopLoss < trade.stopLoss) || 
+            (!isShort && newStopLoss > trade.stopLoss)) {
+          updatedTrade.stopLoss = newStopLoss;
+        }
+      }
+      
+      return updatedTrade;
+    }));
+    */
   };
 
   const updateStopLoss = (id: string, newStopLoss: number) => {
@@ -215,7 +416,7 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     setTrades([...trades, ...newTrades]);
   };
 
-  const calculateRisk = (entryPrice: number, stopLoss: number, quantity: number, quantityType: 'coins' | 'dollars', portfolioValue: number, isShort: boolean = false) => {
+  const calculateRisk = (entryPrice: number, stopLoss: number, quantity: number, quantityType: 'coins' | 'dollars', portfolioValue: number, isShort?: boolean) => {
     if (portfolioValue <= 0 || entryPrice <= 0) return 0; // Avoid division by zero
     
     // For dollar-based positions, we need to calculate how many coins that represents
@@ -234,10 +435,10 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
   const calculatePositionFromRisk = (
     entryPrice: number, 
     stopLoss: number, 
-    desiredRiskPercent: number, 
+    riskPercentage: number, 
     portfolioValue: number, 
     quantityType: 'coins' | 'dollars',
-    isShort: boolean = false
+    isShort?: boolean
   ) => {
     if (portfolioValue <= 0 || entryPrice <= 0 || entryPrice === stopLoss) return 0; // Avoid division by zero
     
@@ -245,7 +446,7 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     const priceChange = Math.abs(entryPrice - stopLoss);
     
     // Calculate the dollar risk amount
-    const dollarRiskAmount = (desiredRiskPercent / 100) * portfolioValue;
+    const dollarRiskAmount = (riskPercentage / 100) * portfolioValue;
     
     // Calculate the position size in coins
     const positionSizeCoins = dollarRiskAmount / priceChange;
@@ -257,15 +458,15 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
   const calculateStopLossFromRisk = (
     entryPrice: number,
     quantity: number,
-    desiredRiskPercent: number,
+    riskPercentage: number,
     portfolioValue: number,
     quantityType: 'coins' | 'dollars',
-    isShort: boolean = false
+    isShort?: boolean
   ) => {
     if (portfolioValue <= 0 || entryPrice <= 0) return 0; // Avoid division by zero
     
     // Calculate the dollar risk amount
-    const dollarRiskAmount = (desiredRiskPercent / 100) * portfolioValue;
+    const dollarRiskAmount = (riskPercentage / 100) * portfolioValue;
     
     // Calculate the actual quantity in coins
     const actualQuantity = quantityType === 'dollars' ? quantity / entryPrice : quantity;
@@ -298,8 +499,39 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     return quantityType === 'dollars' ? positionSizeCoins * entryPrice : positionSizeCoins;
   };
 
-  const getTradeStats = (): TradeStats => {
-    const closedTrades = trades.filter(trade => !trade.isActive && trade.exitPrice);
+  // Filter trades based on time period
+  const filterTradesByPeriod = (trades: Trade[], period: TimePeriod): Trade[] => {
+    if (period === 'all') return trades;
+    
+    const now = new Date();
+    let startDate: Date;
+    
+    switch (period) {
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'quarter':
+        const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+        startDate = new Date(now.getFullYear(), quarterStartMonth, 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        return trades;
+    }
+    
+    return trades.filter(trade => {
+      const tradeDate = new Date(trade.entryDate);
+      return tradeDate >= startDate;
+    });
+  };
+
+  const getTradeStats = (period?: TimePeriod): TradeStats => {
+    // Filter trades based on the selected time period
+    const actualPeriod: TimePeriod = period || 'all';
+    const filteredTrades = filterTradesByPeriod(trades, actualPeriod);
+    const closedTrades = filteredTrades.filter(trade => !trade.isActive && trade.exitPrice);
     
     if (closedTrades.length === 0) {
       return {
@@ -310,21 +542,15 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
         totalProfit: 0,
         averageProfit: 0,
         averageLoss: 0,
-        profitFactor: 0
+        profitFactor: 0,
+        bestTrade: null,
+        worstTrade: null,
+        averageR: 0
       };
     }
 
-    const winningTrades = closedTrades.filter(trade => {
-      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-      return (trade.exitPrice! - trade.entryPrice) * (isShort ? -1 : 1) > 0;
-    });
-    
-    const losingTrades = closedTrades.filter(trade => {
-      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-      return (trade.exitPrice! - trade.entryPrice) * (isShort ? -1 : 1) <= 0;
-    });
-
-    const totalProfit = closedTrades.reduce((sum, trade) => {
+    // Calculate profit/loss for each trade
+    const tradesWithProfits = closedTrades.map(trade => {
       const isShort = trade.cryptocurrency.toLowerCase().includes('short');
       const actualQuantity = trade.quantityType === 'dollars' 
         ? trade.quantity / trade.entryPrice 
@@ -332,31 +558,47 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       
       const profit = (trade.exitPrice! - trade.entryPrice) * actualQuantity * 
                     (isShort ? -1 : 1);
-      return sum + profit;
-    }, 0);
+      
+      // Calculate R-multiple if stopLoss is available
+      let rMultiple = 0;
+      if (trade.stopLoss) {
+        const risk = Math.abs(trade.entryPrice - trade.stopLoss);
+        if (risk > 0) {
+          const reward = Math.abs(trade.exitPrice! - trade.entryPrice);
+          rMultiple = (reward / risk) * (profit > 0 ? 1 : -1);
+        }
+      }
+      
+      return { ...trade, profit, rMultiple };
+    });
 
-    const winningProfits = winningTrades.map(trade => {
-      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-      const actualQuantity = trade.quantityType === 'dollars' 
-        ? trade.quantity / trade.entryPrice 
-        : trade.quantity;
+    const winningTrades = tradesWithProfits.filter(trade => trade.profit > 0);
+    const losingTrades = tradesWithProfits.filter(trade => trade.profit <= 0);
+
+    // Find best and worst trades
+    const bestTrade = tradesWithProfits.length > 0 
+      ? tradesWithProfits.reduce((best, current) => 
+          current.profit > best.profit ? current : best, tradesWithProfits[0])
+      : null;
       
-      return (trade.exitPrice! - trade.entryPrice) * actualQuantity * 
-        (isShort ? -1 : 1);
-    });
-    
-    const losingLosses = losingTrades.map(trade => {
-      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-      const actualQuantity = trade.quantityType === 'dollars' 
-        ? trade.quantity / trade.entryPrice 
-        : trade.quantity;
-      
-      return (trade.exitPrice! - trade.entryPrice) * actualQuantity * 
-        (isShort ? -1 : 1);
-    });
+    const worstTrade = tradesWithProfits.length > 0 
+      ? tradesWithProfits.reduce((worst, current) => 
+          current.profit < worst.profit ? current : worst, tradesWithProfits[0])
+      : null;
+
+    const totalProfit = tradesWithProfits.reduce((sum, trade) => sum + trade.profit, 0);
+
+    const winningProfits = winningTrades.map(trade => trade.profit);
+    const losingLosses = losingTrades.map(trade => trade.profit);
 
     const totalWinnings = winningProfits.reduce((sum, profit) => sum + profit, 0);
     const totalLosses = Math.abs(losingLosses.reduce((sum, loss) => sum + loss, 0));
+    
+    // Calculate average R-multiple
+    const validRTrades = tradesWithProfits.filter(trade => trade.rMultiple !== 0);
+    const averageR = validRTrades.length > 0
+      ? validRTrades.reduce((sum, trade) => sum + trade.rMultiple, 0) / validRTrades.length
+      : 0;
 
     return {
       totalTrades: closedTrades.length,
@@ -366,121 +608,113 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       totalProfit,
       averageProfit: winningTrades.length > 0 ? totalWinnings / winningTrades.length : 0,
       averageLoss: losingTrades.length > 0 ? totalLosses / losingTrades.length : 0,
-      profitFactor: totalLosses > 0 ? totalWinnings / totalLosses : totalWinnings > 0 ? Infinity : 0
+      profitFactor: totalLosses > 0 ? totalWinnings / totalLosses : totalWinnings > 0 ? Infinity : 0,
+      bestTrade,
+      worstTrade,
+      averageR
     };
   };
 
-  const getBitcoinComparison = (period: TimePeriod = 'all'): BitcoinComparison => {
+  const getBitcoinComparison = (period?: TimePeriod): BitcoinComparison => {
     // Filter trades based on the selected time period
-    const now = new Date();
-    let startDate = new Date(0); // Default to earliest possible date
-    let periodMonths = 0;
+    const actualPeriod: TimePeriod = period || 'all';
+    const filteredTrades = filterTradesByPeriod(trades, actualPeriod);
     
-    if (period === 'month') {
-      // Start from the beginning of the current month
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      periodMonths = (now.getDate() / 30); // Approximate fraction of month passed
-    } else if (period === 'quarter') {
-      // Start from 3 months ago
-      startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-      periodMonths = 3;
-    } else if (period === 'year') {
-      // Start from January 1st of current year
-      startDate = new Date(now.getFullYear(), 0, 1);
-      periodMonths = now.getMonth() + 1; // Current month (0-indexed) + 1
-    } else {
-      // For 'all', use the date of the first trade or a default date
-      const firstTrade = trades.length > 0 
-        ? trades.reduce((earliest, trade) => 
-            new Date(trade.entryDate) < new Date(earliest.entryDate) ? trade : earliest
-          )
-        : null;
+    // Calculate trading profit for the filtered trades
+    const tradingProfit = filteredTrades.reduce((sum, trade) => {
+      if (trade.isActive) return sum; // Skip active trades
       
-      if (firstTrade) {
-        const firstTradeDate = new Date(firstTrade.entryDate);
-        startDate = new Date(firstTradeDate.getFullYear(), firstTradeDate.getMonth(), 1);
-        periodMonths = (now.getFullYear() - firstTradeDate.getFullYear()) * 12 + 
-                      now.getMonth() - firstTradeDate.getMonth();
-      } else {
-        // If no trades, use 1 year ago as default
-        startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
-        periodMonths = 12;
-      }
+      const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+      const actualQuantity = trade.quantityType === 'dollars' 
+        ? trade.quantity / trade.entryPrice 
+        : trade.quantity;
+      
+      if (!trade.exitPrice) return sum; // Skip trades without exit price
+      
+      const profit = (trade.exitPrice - trade.entryPrice) * actualQuantity * 
+                    (isShort ? -1 : 1);
+      return sum + profit;
+    }, 0);
+    
+    // Determine the appropriate start balance based on the selected period
+    let startBalance = allTimeStartBalance;
+    switch (actualPeriod) {
+      case 'month':
+        startBalance = monthStartBalance;
+        break;
+      case 'quarter':
+        startBalance = quarterStartBalance;
+        break;
+      case 'year':
+        startBalance = yearStartBalance;
+        break;
     }
     
-    // Filter trades based on the selected period
-    const filteredTrades = trades.filter(trade => {
-      const tradeDate = new Date(trade.entryDate);
-      return tradeDate >= startDate;
-    });
+    // Simplified Bitcoin holding profit calculation (assuming 10% monthly growth)
+    const now = new Date();
+    let monthsPassed = 0;
     
-    // Calculate trading profit for the filtered period
-    const tradingProfit = filteredTrades
-      .filter(trade => !trade.isActive && trade.exitPrice)
-      .reduce((sum, trade) => {
-        const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-        const actualQuantity = trade.quantityType === 'dollars' 
-          ? trade.quantity / trade.entryPrice 
-          : trade.quantity;
+    switch (actualPeriod) {
+      case 'month':
+        monthsPassed = 1;
+        break;
+      case 'quarter':
+        monthsPassed = 3;
+        break;
+      case 'year':
+        monthsPassed = 12;
+        break;
+      case 'all':
+        // Calculate months since the first trade or portfolio start date
+        const firstTradeDate = trades.length > 0 
+          ? new Date(Math.min(...trades.map(t => new Date(t.entryDate).getTime())))
+          : new Date(portfolioSettings.startDate);
         
-        const profit = (trade.exitPrice! - trade.entryPrice) * actualQuantity * 
-                      (isShort ? -1 : 1);
-        return sum + profit;
-      }, 0);
-    
-    // Get the appropriate start balance based on the period
-    let startBalance = portfolioValue;
-    if (period === 'year') {
-      startBalance = yearStartBalance;
-    } else if (period === 'month') {
-      startBalance = monthStartBalance;
-    } else if (period === 'quarter') {
-      startBalance = quarterStartBalance;
-    } else if (period === 'all') {
-      startBalance = allTimeStartBalance;
+        monthsPassed = (now.getFullYear() - firstTradeDate.getFullYear()) * 12 + 
+                      (now.getMonth() - firstTradeDate.getMonth());
+        monthsPassed = Math.max(1, monthsPassed); // At least 1 month
+        break;
     }
     
-    // Calculate Bitcoin holding profit
-    // In a real app, you would fetch the actual Bitcoin price at the start date
-    // and the current price to calculate the actual holding profit
+    // Calculate Bitcoin growth rate (10% monthly)
+    const bitcoinGrowthRate = Math.pow(1.1, monthsPassed) - 1;
+    const holdingProfit = startBalance * bitcoinGrowthRate;
     
-    // Simplified Bitcoin holding profit calculation
-    // Assuming Bitcoin has appreciated by 10% per month since the start of the period
-    const bitcoinGrowthRate = Math.pow(1.10, periodMonths); // 10% monthly growth
-    const holdingProfit = startBalance * bitcoinGrowthRate - startBalance;
-    
-    // If no trades in the period, only return the holding comparison
-    if (filteredTrades.length === 0) {
+    // Check if there are any trades in the period
+    if (filteredTrades.filter(t => !t.isActive && t.exitPrice).length === 0) {
       return {
         tradingProfit: 0,
         holdingProfit,
         difference: -holdingProfit,
-        percentageDifference: holdingProfit !== 0 ? (-holdingProfit / holdingProfit) * 100 : 0,
-        period,
-        yearStartBalance: period === 'year' ? yearStartBalance : undefined,
-        monthStartBalance: period === 'month' ? monthStartBalance : undefined,
-        quarterStartBalance: period === 'quarter' ? quarterStartBalance : undefined,
-        allTimeStartBalance: period === 'all' ? allTimeStartBalance : undefined
+        percentageDifference: -100,
+        period: actualPeriod,
+        yearStartBalance,
+        monthStartBalance,
+        quarterStartBalance,
+        allTimeStartBalance
       };
     }
     
+    // Calculate the difference and percentage difference
     const difference = tradingProfit - holdingProfit;
-    const percentageDifference = holdingProfit !== 0 ? (difference / holdingProfit) * 100 : 0;
+    const percentageDifference = holdingProfit !== 0 
+      ? (difference / Math.abs(holdingProfit)) * 100 
+      : tradingProfit > 0 ? 100 : 0;
     
     return {
       tradingProfit,
       holdingProfit,
       difference,
       percentageDifference,
-      period,
-      yearStartBalance: period === 'year' ? yearStartBalance : undefined,
-      monthStartBalance: period === 'month' ? monthStartBalance : undefined,
-      quarterStartBalance: period === 'quarter' ? quarterStartBalance : undefined,
-      allTimeStartBalance: period === 'all' ? allTimeStartBalance : undefined
+      period: actualPeriod,
+      yearStartBalance,
+      monthStartBalance,
+      quarterStartBalance,
+      allTimeStartBalance
     };
   };
 
-  const getPortfolioPerformance = (): PortfolioPerformance[] => {
+  const getPortfolioPerformance = (timeRange: TimePeriod = 'all'): PortfolioPerformance[] => {
     if (trades.length === 0) {
       return [];
     }
@@ -493,6 +727,21 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     // Get the earliest trade date or use portfolio start date if set
     const startDate = new Date(portfolioSettings.startDate);
     const initialBalance = portfolioSettings.initialBalance;
+    
+    // For time-based filtering
+    let filterDate = new Date(0); // Default to earliest possible date
+    const now = new Date();
+    
+    if (timeRange === 'month') {
+      // Start from the beginning of the current month
+      filterDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (timeRange === 'quarter') {
+      // Start from 3 months ago
+      filterDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    } else if (timeRange === 'year') {
+      // Start from January 1st of current year
+      filterDate = new Date(now.getFullYear(), 0, 1);
+    }
     
     // Create a map of dates to track daily performance
     const performanceMap = new Map<string, PortfolioPerformance>();
@@ -513,13 +762,14 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     
     // Process each trade
     sortedTrades.forEach(trade => {
-      // Skip trades before the start date
-      if (new Date(trade.entryDate) < startDate) {
+      // Skip trades before the start date or filter date
+      const tradeDate = new Date(trade.entryDate);
+      if (tradeDate < startDate || tradeDate < filterDate) {
         return;
       }
       
       // Handle entry date
-      const entryDate = new Date(trade.entryDate).toISOString().split('T')[0];
+      const entryDate = tradeDate.toISOString().split('T')[0];
       tradeCount++;
       
       // Handle exit date and profit calculation if trade is closed
@@ -616,6 +866,28 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   };
 
+  // Update the setPortfolioSettings function to also update the initial balance
+  const updatePortfolioSettings = (settings: PortfolioSettings) => {
+    setPortfolioSettings(settings);
+    
+    // If the initial balance has changed, update the reference balances if they match the old initial balance
+    if (settings.initialBalance !== portfolioSettings.initialBalance) {
+      // Only update reference balances if they haven't been manually changed
+      if (yearStartBalance === portfolioSettings.initialBalance) {
+        setYearStartBalance(settings.initialBalance);
+      }
+      if (monthStartBalance === portfolioSettings.initialBalance) {
+        setMonthStartBalance(settings.initialBalance);
+      }
+      if (quarterStartBalance === portfolioSettings.initialBalance) {
+        setQuarterStartBalance(settings.initialBalance);
+      }
+      if (allTimeStartBalance === portfolioSettings.initialBalance) {
+        setAllTimeStartBalance(settings.initialBalance);
+      }
+    }
+  };
+
   return (
     <PortfolioContext.Provider value={{ portfolioValue, setPortfolioValue }}>
       <TradeContext.Provider
@@ -624,6 +896,9 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
           addTrade,
           updateTrade,
           closeTrade,
+          closePartialTrade,
+          setTrailingStop,
+          updateTrailingStops,
           updateStopLoss,
           deleteTrade,
           importTrades,
@@ -642,8 +917,9 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
           calculateStopLossFromRisk,
           calculatePositionFromDollarRisk,
           portfolioSettings,
-          setPortfolioSettings,
-          getPortfolioPerformance
+          setPortfolioSettings: updatePortfolioSettings,
+          getPortfolioPerformance,
+          calculateCurrentPortfolioValue
         }}
       >
         {children}

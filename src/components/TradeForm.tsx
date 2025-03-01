@@ -66,14 +66,17 @@ const TradeForm: React.FC = () => {
   
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   const [customCoin, setCustomCoin] = useState<string>('');
+  const [name, setName] = useState<string>('');
   const [entryPrice, setEntryPrice] = useState<string>('');
   const [quantity, setQuantity] = useState<string>('');
   const [quantityType, setQuantityType] = useState<'dollars' | 'coins'>('dollars');
   const [stopLoss, setStopLoss] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [lessonsLearned, setLessonsLearned] = useState<string>('');
   const [risk, setRisk] = useState<number | null>(null);
   const [desiredRisk, setDesiredRisk] = useState<string>('2');
   const [dollarRisk, setDollarRisk] = useState<string>('200');
+  const [entryDate, setEntryDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showAlert, setShowAlert] = useState<boolean>(false);
   const [alertMessage, setAlertMessage] = useState<string>('');
   const [alertSeverity, setAlertSeverity] = useState<'success' | 'error'>('success');
@@ -323,21 +326,26 @@ const TradeForm: React.FC = () => {
     addTrade({
       cryptocurrency: cryptoName,
       coinId: selectedCoin ? selectedCoin.id : customCoin.toLowerCase().replace(/\s+/g, '-'),
+      name: name,
       entryPrice: entryPriceNum,
       quantity: quantityNum,
       quantityType,
       stopLoss: stopLossNum,
-      entryDate: new Date().toISOString(),
-      notes
+      entryDate: new Date(`${entryDate}T00:00:00`).toISOString(),
+      notes,
+      lessonsLearned
     });
     
     // Reset form
     setSelectedCoin(null);
     setCustomCoin('');
+    setName('');
     setEntryPrice('');
     setQuantity('');
     setStopLoss('');
     setNotes('');
+    setLessonsLearned('');
+    setEntryDate(new Date().toISOString().split('T')[0]);
     setIsShort(false);
     
     // Show success message
@@ -486,6 +494,31 @@ const TradeForm: React.FC = () => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
+                label="Trade Name (Optional)"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g., BTC Breakout, ETH Support Bounce"
+              />
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Entry Date"
+                type="date"
+                value={entryDate}
+                onChange={(e) => setEntryDate(e.target.value)}
+                InputLabelProps={{
+                  shrink: true,
+                }}
+                required
+              />
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
                 label="Entry Price"
                 type="text"
                 value={entryPrice}
@@ -567,6 +600,7 @@ const TradeForm: React.FC = () => {
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
                 required
+                helperText="Portfolio value is automatically calculated based on your trade history"
               />
             </Grid>
             
@@ -591,6 +625,7 @@ const TradeForm: React.FC = () => {
                       InputProps={{
                         startAdornment: <InputAdornment position="start">$</InputAdornment>,
                       }}
+                      helperText="Portfolio value is automatically calculated based on your trade history"
                     />
                   </Grid>
                   <Grid item xs={12} md={3}>
@@ -837,6 +872,17 @@ const TradeForm: React.FC = () => {
                 rows={3}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+              />
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Lessons Learned"
+                multiline
+                rows={3}
+                value={lessonsLearned}
+                onChange={(e) => setLessonsLearned(e.target.value)}
               />
             </Grid>
             

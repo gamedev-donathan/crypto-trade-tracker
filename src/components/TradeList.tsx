@@ -26,7 +26,14 @@ import {
   Menu,
   MenuItem,
   Alert,
-  Snackbar
+  Snackbar,
+  FormControlLabel,
+  Switch,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  Collapse
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -35,13 +42,16 @@ import {
   ArrowUpward as ArrowUpwardIcon,
   ArrowDownward as ArrowDownwardIcon,
   FileDownload as FileDownloadIcon,
-  FileUpload as FileUploadIcon
+  FileUpload as FileUploadIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  TrendingUp as TrendingUpIcon
 } from '@mui/icons-material';
 import { useTrades } from '../context/TradeContext';
-import { Trade } from '../types';
+import { Trade, PartialExit } from '../types';
 
 const TradeList: React.FC = () => {
-  const { trades, updateStopLoss, closeTrade, deleteTrade, importTrades } = useTrades();
+  const { trades, updateStopLoss, closeTrade, closePartialTrade, setTrailingStop, deleteTrade, importTrades, updateTrade } = useTrades();
   
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -51,6 +61,7 @@ const TradeList: React.FC = () => {
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [newStopLoss, setNewStopLoss] = useState('');
   const [exitPrice, setExitPrice] = useState('');
+  const [exitDate, setExitDate] = useState(new Date().toISOString().split('T')[0]);
   const [exitPriceOption, setExitPriceOption] = useState<'custom' | 'entry' | 'stopLoss'>('custom');
   const [sortField, setSortField] = useState<keyof Trade>('entryDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -62,6 +73,25 @@ const TradeList: React.FC = () => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Add new state for partial close and trailing stop
+  const [openPartialCloseDialog, setOpenPartialCloseDialog] = useState(false);
+  const [openTrailingStopDialog, setOpenTrailingStopDialog] = useState(false);
+  const [partialExitQuantity, setPartialExitQuantity] = useState('');
+  const [partialExitNotes, setPartialExitNotes] = useState('');
+  const [trailingAmount, setTrailingAmount] = useState('');
+  const [trailingType, setTrailingType] = useState<'percentage' | 'fixed'>('percentage');
+  const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
+  
+  // Edit trade dialog state
+  const [openEditTradeDialog, setOpenEditTradeDialog] = useState(false);
+  const [editedTrade, setEditedTrade] = useState<Partial<Trade>>({});
+  
+  // Edit notes state
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isEditingLessons, setIsEditingLessons] = useState(false);
+  const [editedNotes, setEditedNotes] = useState('');
+  const [editedLessons, setEditedLessons] = useState('');
   
   // Handle pagination
   const handleChangePage = (event: unknown, newPage: number) => {
@@ -96,6 +126,7 @@ const TradeList: React.FC = () => {
   const handleOpenCloseTradeDialog = (trade: Trade) => {
     setSelectedTrade(trade);
     setExitPrice(trade.entryPrice.toString());
+    setExitDate(new Date().toISOString().split('T')[0]);
     setExitPriceOption('custom');
     setOpenCloseTradeDialog(true);
   };
@@ -107,7 +138,7 @@ const TradeList: React.FC = () => {
   
   const handleCloseTrade = () => {
     if (selectedTrade && exitPrice) {
-      closeTrade(selectedTrade.id, parseFloat(exitPrice));
+      closeTrade(selectedTrade.id, parseFloat(exitPrice), exitDate);
       handleCloseTradeDialog();
     }
   };
@@ -121,6 +152,27 @@ const TradeList: React.FC = () => {
       } else if (option === 'stopLoss') {
         setExitPrice(formatFullDecimal(selectedTrade.stopLoss));
       }
+    }
+  };
+  
+  // Add R-multiple exit price function for the close trade dialog
+  const handleCloseTradeRMultipleExit = (rMultiple: number) => {
+    if (selectedTrade) {
+      const isShort = selectedTrade.cryptocurrency.toLowerCase().includes('short');
+      const priceDifference = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+      
+      // Calculate exit price based on R-multiple
+      let newExitPrice;
+      if (isShort) {
+        // For shorts, profit is when price goes down
+        newExitPrice = selectedTrade.entryPrice - (priceDifference * rMultiple);
+      } else {
+        // For longs, profit is when price goes up
+        newExitPrice = selectedTrade.entryPrice + (priceDifference * rMultiple);
+      }
+      
+      setExitPrice(formatFullDecimal(newExitPrice));
+      setExitPriceOption('custom');
     }
   };
   
@@ -442,8 +494,7 @@ const TradeList: React.FC = () => {
   };
   
   // Add a helper function to format numbers to avoid scientific notation
-  const formatFullDecimal = (num: number | undefined | null): string => {
-    if (num === undefined || num === null) return 'N/A';
+  const formatFullDecimal = (num: number): string => {
     if (num === 0) return '0';
     
     // Convert to string and check if it uses scientific notation
@@ -452,6 +503,178 @@ const TradeList: React.FC = () => {
     
     // Handle scientific notation
     return Number(num).toFixed(20).replace(/\.?0+$/, '');
+  };
+  
+  // Handle partial close dialog
+  const handleOpenPartialCloseDialog = (trade: Trade) => {
+    setSelectedTrade(trade);
+    setExitPrice(trade.entryPrice.toString());
+    setPartialExitQuantity((trade.remainingQuantity || trade.quantity).toString());
+    setPartialExitNotes('');
+    setExitPriceOption('custom');
+    setOpenPartialCloseDialog(true);
+  };
+
+  // Add new functions for preset partial close amounts
+  const handleSetPartialPosition = (percentage: number) => {
+    if (selectedTrade) {
+      const availableQuantity = selectedTrade.remainingQuantity || selectedTrade.quantity;
+      setPartialExitQuantity((availableQuantity * (percentage / 100)).toString());
+    }
+  };
+
+  // Add new functions for R-multiple exit prices
+  const handleSetRMultipleExit = (rMultiple: number) => {
+    if (selectedTrade) {
+      const isShort = selectedTrade.cryptocurrency.toLowerCase().includes('short');
+      const priceDifference = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+      
+      // Calculate exit price based on R-multiple
+      let newExitPrice;
+      if (isShort) {
+        // For shorts, profit is when price goes down
+        newExitPrice = selectedTrade.entryPrice - (priceDifference * rMultiple);
+      } else {
+        // For longs, profit is when price goes up
+        newExitPrice = selectedTrade.entryPrice + (priceDifference * rMultiple);
+      }
+      
+      setExitPrice(formatFullDecimal(newExitPrice));
+      setExitPriceOption('custom');
+    }
+  };
+
+  const handleClosePartialCloseDialog = () => {
+    setOpenPartialCloseDialog(false);
+    setSelectedTrade(null);
+  };
+  
+  const handlePartialCloseTrade = () => {
+    if (selectedTrade && exitPrice && partialExitQuantity) {
+      closePartialTrade(
+        selectedTrade.id, 
+        parseFloat(exitPrice), 
+        parseFloat(partialExitQuantity),
+        partialExitNotes || undefined
+      );
+      handleClosePartialCloseDialog();
+    }
+  };
+  
+  // Handle trailing stop dialog
+  const handleOpenTrailingStopDialog = (trade: Trade) => {
+    setSelectedTrade(trade);
+    setTrailingAmount(trade.trailingAmount?.toString() || '2');
+    setTrailingType(trade.trailingType || 'percentage');
+    setOpenTrailingStopDialog(true);
+  };
+  
+  const handleCloseTrailingStopDialog = () => {
+    setOpenTrailingStopDialog(false);
+    setSelectedTrade(null);
+  };
+  
+  const handleSetTrailingStop = () => {
+    if (selectedTrade && trailingAmount) {
+      setTrailingStop(
+        selectedTrade.id,
+        parseFloat(trailingAmount),
+        trailingType
+      );
+      handleCloseTrailingStopDialog();
+    }
+  };
+  
+  // Toggle expanded trade details
+  const handleToggleExpand = (tradeId: string) => {
+    // If we're closing the current expanded trade or opening a different one, reset editing states
+    if (expandedTradeId === tradeId || expandedTradeId !== tradeId) {
+      setIsEditingNotes(false);
+      setIsEditingLessons(false);
+    }
+    
+    setExpandedTradeId(expandedTradeId === tradeId ? null : tradeId);
+  };
+  
+  const handleOpenEditTradeDialog = (trade: Trade) => {
+    setSelectedTrade(trade);
+    
+    // Format the entry date to YYYY-MM-DDThh:mm
+    const entryDate = trade.entryDate ? new Date(trade.entryDate) : new Date();
+    const formattedEntryDate = entryDate.toISOString().slice(0, 16);
+    
+    // Format the exit date if it exists
+    let formattedExitDate = '';
+    if (trade.exitDate) {
+      const exitDate = new Date(trade.exitDate);
+      formattedExitDate = exitDate.toISOString().slice(0, 16);
+    }
+    
+    setEditedTrade({
+      name: trade.name || '',
+      cryptocurrency: trade.cryptocurrency,
+      coinId: trade.coinId,
+      entryPrice: trade.entryPrice,
+      exitPrice: trade.exitPrice,
+      quantity: trade.quantity,
+      quantityType: trade.quantityType,
+      stopLoss: trade.stopLoss,
+      entryDate: formattedEntryDate,
+      exitDate: formattedExitDate || '',
+      notes: trade.notes || '',
+      lessonsLearned: trade.lessonsLearned || ''
+    });
+    setOpenEditTradeDialog(true);
+  };
+
+  const handleCloseEditTradeDialog = () => {
+    setOpenEditTradeDialog(false);
+    setSelectedTrade(null);
+    setEditedTrade({});
+  };
+
+  const handleSaveEditedTrade = () => {
+    if (selectedTrade && editedTrade) {
+      updateTrade(selectedTrade.id, editedTrade);
+      handleCloseEditTradeDialog();
+    }
+  };
+
+  const handleEditTradeChange = (field: keyof Trade, value: any) => {
+    setEditedTrade(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+  
+  // Handle notes editing
+  const handleStartEditingNotes = (trade: Trade) => {
+    setEditedNotes(trade.notes || '');
+    setIsEditingNotes(true);
+  };
+  
+  const handleSaveNotes = (tradeId: string) => {
+    updateTrade(tradeId, { notes: editedNotes });
+    setIsEditingNotes(false);
+  };
+  
+  const handleCancelEditingNotes = () => {
+    setIsEditingNotes(false);
+  };
+  
+  // Handle lessons learned editing
+  const handleStartEditingLessons = (trade: Trade) => {
+    setEditedLessons(trade.lessonsLearned || '');
+    setIsEditingLessons(true);
+  };
+  
+  const handleSaveLessons = (tradeId: string) => {
+    updateTrade(tradeId, { lessonsLearned: editedLessons });
+    setIsEditingLessons(false);
+  };
+  
+  const handleCancelEditingLessons = () => {
+    setIsEditingLessons(false);
   };
   
   return (
@@ -512,50 +735,34 @@ const TradeList: React.FC = () => {
       <Typography variant="h5" gutterBottom sx={{ mt: 3 }}>
         Active Trades
       </Typography>
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={{ mb: 4 }}>
+        <Typography variant="h6" sx={{ p: 2 }}>
+          Active Trades
+        </Typography>
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell>Details</TableCell>
               <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => handleSort('cryptocurrency')}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   Cryptocurrency
-                  {sortField === 'cryptocurrency' && (
-                    sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
-                  )}
+                  <IconButton size="small" onClick={() => handleSort('cryptocurrency')}>
+                    {sortField === 'cryptocurrency' && sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+                  </IconButton>
                 </Box>
               </TableCell>
               <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => handleSort('entryPrice')}>
-                  Entry Price
-                  {sortField === 'entryPrice' && (
-                    sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
-                  )}
-                </Box>
-              </TableCell>
-              <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => handleSort('quantity')}>
-                  Quantity
-                  {sortField === 'quantity' && (
-                    sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
-                  )}
-                </Box>
-              </TableCell>
-              <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => handleSort('stopLoss')}>
-                  Stop Loss
-                  {sortField === 'stopLoss' && (
-                    sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
-                  )}
-                </Box>
-              </TableCell>
-              <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => handleSort('entryDate')}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   Entry Date
-                  {sortField === 'entryDate' && (
-                    sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
-                  )}
+                  <IconButton size="small" onClick={() => handleSort('entryDate')}>
+                    {sortField === 'entryDate' && sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+                  </IconButton>
                 </Box>
               </TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Entry Price</TableCell>
+              <TableCell>Quantity</TableCell>
+              <TableCell>Stop Loss</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -564,46 +771,250 @@ const TradeList: React.FC = () => {
               activeTrades
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                 .map((trade) => (
-                  <TableRow key={trade.id}>
-                    <TableCell>
-                      {trade.cryptocurrency.toLowerCase().includes('short') ? (
-                        <Chip label="SHORT" color="error" size="small" sx={{ mr: 1 }} />
-                      ) : null}
-                      {trade.cryptocurrency}
-                    </TableCell>
-                    <TableCell>${formatFullDecimal(trade.entryPrice)}</TableCell>
-                    <TableCell>
-                      {formatQuantity(trade)}
-                      {trade.quantityType === 'dollars' && (
-                        <Typography variant="caption" display="block" color="text.secondary">
-                          ≈ {(trade.quantity / trade.entryPrice).toFixed(8)} coins
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>${formatFullDecimal(trade.stopLoss)}</TableCell>
-                    <TableCell>{formatDate(trade.entryDate)}</TableCell>
-                    <TableCell>
-                      <Tooltip title="Edit Stop Loss">
-                        <IconButton onClick={() => handleOpenStopLossDialog(trade)} color="primary">
-                          <EditIcon />
+                  <React.Fragment key={trade.id}>
+                    <TableRow>
+                      <TableCell>
+                        <IconButton size="small" onClick={() => handleToggleExpand(trade.id)}>
+                          {expandedTradeId === trade.id ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Close Trade">
-                        <IconButton onClick={() => handleOpenCloseTradeDialog(trade)} color="success">
-                          <DoneIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete Trade">
-                        <IconButton onClick={() => handleOpenDeleteDialog(trade)} color="error">
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                      </TableCell>
+                      <TableCell>
+                        {trade.cryptocurrency}
+                        {trade.isTrailingStop && (
+                          <Chip 
+                            size="small" 
+                            label="Trailing" 
+                            color="secondary" 
+                            icon={<TrendingUpIcon />} 
+                            sx={{ ml: 1 }}
+                          />
+                        )}
+                        {trade.partialExits && trade.partialExits.length > 0 && (
+                          <Chip 
+                            size="small" 
+                            label={`${trade.partialExits.length} Partial Exit${trade.partialExits.length > 1 ? 's' : ''}`} 
+                            sx={{ ml: 1, bgcolor: '#2196f3', color: 'white' }}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell>{new Date(trade.entryDate).toLocaleDateString()}</TableCell>
+                      <TableCell>{trade.name || '-'}</TableCell>
+                      <TableCell>
+                        {trade.remainingQuantity !== undefined 
+                          ? `${formatFullDecimal(trade.remainingQuantity)} / ${formatFullDecimal(trade.originalQuantity || trade.quantity)}`
+                          : formatFullDecimal(trade.quantity)
+                        }
+                        {trade.quantityType === 'coins' ? ' coins' : ' USD'}
+                      </TableCell>
+                      <TableCell>
+                        ${formatFullDecimal(trade.stopLoss)}
+                        {trade.isTrailingStop && (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Trailing: {trade.trailingAmount}{trade.trailingType === 'percentage' ? '%' : '$'}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <ButtonGroup size="small">
+                          <Tooltip title="Edit Trade">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleOpenEditTradeDialog(trade)}
+                              color="primary"
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Set Trailing Stop">
+                            <IconButton onClick={() => handleOpenTrailingStopDialog(trade)} color="secondary">
+                              <TrendingUpIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Partial Close">
+                            <IconButton 
+                              onClick={() => handleOpenPartialCloseDialog(trade)} 
+                              sx={{ color: '#2196f3' }}
+                            >
+                              <DoneIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Close Trade">
+                            <IconButton onClick={() => handleOpenCloseTradeDialog(trade)} color="success">
+                              <DoneIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete Trade">
+                            <IconButton onClick={() => handleOpenDeleteDialog(trade)} color="error">
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </ButtonGroup>
+                      </TableCell>
+                    </TableRow>
+                    
+                    {/* Expanded trade details */}
+                    <TableRow>
+                      <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                        <Collapse in={expandedTradeId === trade.id} timeout="auto" unmountOnExit>
+                          <Box sx={{ margin: 2 }}>
+                            <Typography variant="h6" gutterBottom component="div">
+                              Trade Details
+                            </Typography>
+                            
+                            {trade.name && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2">Name:</Typography>
+                                <Typography variant="body2">{trade.name}</Typography>
+                              </Box>
+                            )}
+                            
+                            <Box sx={{ mb: 2 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Typography variant="subtitle2">Notes:</Typography>
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => handleStartEditingNotes(trade)}
+                                  color="primary"
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                              {isEditingNotes && expandedTradeId === trade.id ? (
+                                <Box sx={{ mt: 1 }}>
+                                  <TextField
+                                    fullWidth
+                                    multiline
+                                    rows={4}
+                                    value={editedNotes}
+                                    onChange={(e) => setEditedNotes(e.target.value)}
+                                    variant="outlined"
+                                    size="small"
+                                    placeholder="Add your trade notes here..."
+                                  />
+                                  <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                                    <Button 
+                                      size="small" 
+                                      onClick={handleCancelEditingNotes}
+                                      sx={{ mr: 1 }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button 
+                                      size="small" 
+                                      variant="contained" 
+                                      color="primary"
+                                      onClick={() => handleSaveNotes(trade.id)}
+                                    >
+                                      Save
+                                    </Button>
+                                  </Box>
+                                </Box>
+                              ) : (
+                                <Typography variant="body2">
+                                  {trade.notes || <em>No notes added yet. Click the edit icon to add notes.</em>}
+                                </Typography>
+                              )}
+                            </Box>
+                            
+                            <Box sx={{ mb: 2 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Typography variant="subtitle2">Lessons Learned:</Typography>
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => handleStartEditingLessons(trade)}
+                                  color="primary"
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                              {isEditingLessons && expandedTradeId === trade.id ? (
+                                <Box sx={{ mt: 1 }}>
+                                  <TextField
+                                    fullWidth
+                                    multiline
+                                    rows={4}
+                                    value={editedLessons}
+                                    onChange={(e) => setEditedLessons(e.target.value)}
+                                    variant="outlined"
+                                    size="small"
+                                    placeholder="Add lessons learned from this trade..."
+                                  />
+                                  <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                                    <Button 
+                                      size="small" 
+                                      onClick={handleCancelEditingLessons}
+                                      sx={{ mr: 1 }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button 
+                                      size="small" 
+                                      variant="contained" 
+                                      color="primary"
+                                      onClick={() => handleSaveLessons(trade.id)}
+                                    >
+                                      Save
+                                    </Button>
+                                  </Box>
+                                </Box>
+                              ) : (
+                                <Typography variant="body2">
+                                  {trade.lessonsLearned || <em>No lessons learned added yet. Click the edit icon to add lessons.</em>}
+                                </Typography>
+                              )}
+                            </Box>
+                            
+                            {trade.partialExits && trade.partialExits.length > 0 && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2">Partial Exits:</Typography>
+                                <List dense>
+                                  {trade.partialExits.map((exit) => (
+                                    <ListItem key={exit.id}>
+                                      <ListItemText
+                                        primary={`${new Date(exit.exitDate).toLocaleDateString()} - ${formatFullDecimal(exit.exitQuantity)} ${trade.quantityType === 'dollars' ? '$' : 'coins'} @ $${formatFullDecimal(exit.exitPrice)}`}
+                                        secondary={exit.notes}
+                                      />
+                                    </ListItem>
+                                  ))}
+                                </List>
+                              </Box>
+                            )}
+                            
+                            {trade.isTrailingStop && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle2">Trailing Stop Details:</Typography>
+                                <Typography variant="body2">
+                                  Amount: {trade.trailingAmount}{trade.trailingType === 'percentage' ? '%' : '$'} | 
+                                  Reference Price: ${formatFullDecimal(trade.highestPrice || trade.entryPrice)}
+                                </Typography>
+                              </Box>
+                            )}
+                            
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="subtitle2">Risk Analysis:</Typography>
+                              <Typography variant="body2">
+                                {(() => {
+                                  const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+                                  const priceDiff = Math.abs(trade.entryPrice - trade.stopLoss);
+                                  const quantity = trade.remainingQuantity || trade.quantity;
+                                  const actualQuantity = trade.quantityType === 'dollars' 
+                                    ? quantity / trade.entryPrice 
+                                    : quantity;
+                                  const dollarRisk = priceDiff * actualQuantity;
+                                  
+                                  return `Risk: $${dollarRisk.toFixed(2)} | Stop Distance: ${((priceDiff / trade.entryPrice) * 100).toFixed(2)}%`;
+                                })()}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </React.Fragment>
                 ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   No active trades
                 </TableCell>
               </TableRow>
@@ -632,12 +1043,11 @@ const TradeList: React.FC = () => {
           <TableHead>
             <TableRow>
               <TableCell>Cryptocurrency</TableCell>
+              <TableCell>Name</TableCell>
               <TableCell>Entry Price</TableCell>
               <TableCell>Exit Price</TableCell>
               <TableCell>Quantity</TableCell>
               <TableCell>Profit/Loss</TableCell>
-              <TableCell>Entry Date</TableCell>
-              <TableCell>Exit Date</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -646,40 +1056,36 @@ const TradeList: React.FC = () => {
               closedTrades
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                 .map((trade) => {
-                  const profitLoss = calculateProfitLoss(trade);
+                  const profitLossResult = calculateProfitLoss(trade);
+                  const profitLossValue = profitLossResult ? profitLossResult.value : 0;
+                  const isProfit = profitLossValue > 0;
+                  
                   return (
                     <TableRow key={trade.id}>
-                      <TableCell>
-                        {trade.cryptocurrency.toLowerCase().includes('short') ? (
-                          <Chip label="SHORT" color="error" size="small" sx={{ mr: 1 }} />
-                        ) : null}
-                        {trade.cryptocurrency}
-                      </TableCell>
+                      <TableCell>{trade.cryptocurrency}</TableCell>
+                      <TableCell>{trade.name || '-'}</TableCell>
                       <TableCell>${formatFullDecimal(trade.entryPrice)}</TableCell>
-                      <TableCell>${trade.exitPrice ? formatFullDecimal(trade.exitPrice) : 'N/A'}</TableCell>
+                      <TableCell>${formatFullDecimal(trade.exitPrice!)}</TableCell>
+                      <TableCell>{formatQuantity(trade)}</TableCell>
                       <TableCell>
-                        {formatQuantity(trade)}
-                        {trade.quantityType === 'dollars' && (
-                          <Typography variant="caption" display="block" color="text.secondary">
-                            ≈ {(trade.quantity / trade.entryPrice).toFixed(8)} coins
-                          </Typography>
-                        )}
+                        <Typography color={isProfit ? 'success.main' : 'error.main'}>
+                          {isProfit ? '+' : ''}{profitLossValue.toFixed(2)} USD
+                          {profitLossResult && ` (${profitLossResult.percentage.toFixed(2)}%)`}
+                        </Typography>
                       </TableCell>
                       <TableCell>
-                        {profitLoss && (
-                          <Typography 
-                            color={profitLoss.value >= 0 ? 'success.main' : 'error.main'}
+                        <Tooltip title="Edit Trade">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleOpenEditTradeDialog(trade)}
+                            color="primary"
                           >
-                            ${profitLoss.value.toFixed(2)} ({profitLoss.percentage.toFixed(2)}%)
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>{formatDate(trade.entryDate)}</TableCell>
-                      <TableCell>{trade.exitDate ? formatDate(trade.exitDate) : 'N/A'}</TableCell>
-                      <TableCell>
-                        <Tooltip title="Delete Trade">
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
                           <IconButton onClick={() => handleOpenDeleteDialog(trade)} color="error">
-                            <DeleteIcon />
+                            <DeleteIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       </TableCell>
@@ -708,72 +1114,104 @@ const TradeList: React.FC = () => {
         )}
       </TableContainer>
       
-      {/* Stop Loss Dialog */}
-      <Dialog open={openStopLossDialog} onClose={handleCloseStopLossDialog}>
-        <DialogTitle>Update Stop Loss</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="New Stop Loss"
-            type="text"
-            fullWidth
-            value={newStopLoss}
-            onChange={(e) => setNewStopLoss(e.target.value)}
-            InputProps={{
-              startAdornment: <InputAdornment position="start">$</InputAdornment>,
-            }}
-            inputProps={{
-              step: "any" // Allows any decimal precision
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseStopLossDialog}>Cancel</Button>
-          <Button onClick={handleUpdateStopLoss} color="primary">Update</Button>
-        </DialogActions>
-      </Dialog>
-      
       {/* Close Trade Dialog */}
       <Dialog open={openCloseTradeDialog} onClose={handleCloseTradeDialog}>
         <DialogTitle>Close Trade</DialogTitle>
         <DialogContent>
           <Box sx={{ mb: 2, mt: 1 }}>
             <Typography variant="subtitle2" gutterBottom>
+              {selectedTrade?.cryptocurrency}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Entry Price: ${selectedTrade?.entryPrice}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Stop Loss: ${selectedTrade?.stopLoss}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Risk (1R): ${selectedTrade ? Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss).toFixed(2) : '0.00'} per unit
+            </Typography>
+            
+            <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
               Select Exit Price:
             </Typography>
-            <ToggleButtonGroup
-              value={exitPriceOption}
-              exclusive
-              onChange={(e, newValue) => newValue && handleExitPriceOptionChange(newValue)}
-              aria-label="exit price option"
-              size="small"
-              sx={{ mb: 2 }}
-            >
-              <ToggleButton value="custom" aria-label="custom price">
-                Custom
-              </ToggleButton>
-              <ToggleButton value="entry" aria-label="entry price">
-                Entry Price
-              </ToggleButton>
-              <ToggleButton value="stopLoss" aria-label="stop loss">
+            <ButtonGroup size="small" sx={{ mb: 2 }}>
+              <Button 
+                onClick={() => handleExitPriceOptionChange('entry')}
+                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+              >
+                Entry
+              </Button>
+              <Button 
+                onClick={() => handleExitPriceOptionChange('stopLoss')}
+                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+              >
                 Stop Loss
-              </ToggleButton>
-            </ToggleButtonGroup>
+              </Button>
+              <Button 
+                onClick={() => handleCloseTradeRMultipleExit(1)}
+                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+              >
+                1R
+              </Button>
+              <Button 
+                onClick={() => handleCloseTradeRMultipleExit(2)}
+                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+              >
+                2R
+              </Button>
+              <Button 
+                onClick={() => handleCloseTradeRMultipleExit(3)}
+                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+              >
+                3R
+              </Button>
+            </ButtonGroup>
+            
+            {selectedTrade && (
+              <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {[1, 2, 3].map(r => {
+                  const isShort = selectedTrade.cryptocurrency.toLowerCase().includes('short');
+                  const priceDiff = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+                  const rPrice = isShort 
+                    ? selectedTrade.entryPrice - (priceDiff * r)
+                    : selectedTrade.entryPrice + (priceDiff * r);
+                  
+                  return (
+                    <Chip 
+                      key={r}
+                      label={`${r}R = $${formatFullDecimal(rPrice)}`}
+                      size="small"
+                      sx={{ 
+                        bgcolor: r === 1 ? '#2196f3' : r === 2 ? '#9c27b0' : '#4caf50', 
+                        color: 'white' 
+                      }}
+                    />
+                  );
+                })}
+              </Box>
+            )}
           </Box>
           <TextField
             autoFocus
             margin="dense"
+            id="exitPrice"
             label="Exit Price"
-            type="text"
+            type="number"
             fullWidth
             value={exitPrice}
             onChange={(e) => setExitPrice(e.target.value)}
-            InputProps={{
-              startAdornment: <InputAdornment position="start">$</InputAdornment>,
-            }}
-            inputProps={{
-              step: "any" // Allows any decimal precision
+          />
+          <TextField
+            margin="dense"
+            id="exitDate"
+            label="Exit Date"
+            type="date"
+            fullWidth
+            value={exitDate}
+            onChange={(e) => setExitDate(e.target.value)}
+            InputLabelProps={{
+              shrink: true,
             }}
           />
         </DialogContent>
@@ -794,6 +1232,316 @@ const TradeList: React.FC = () => {
         <DialogActions>
           <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
           <Button onClick={handleDeleteTrade} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Partial Close Dialog */}
+      <Dialog open={openPartialCloseDialog} onClose={handleClosePartialCloseDialog}>
+        <DialogTitle>Partial Close Trade</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              {selectedTrade?.cryptocurrency}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Entry Price: ${selectedTrade?.entryPrice}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Stop Loss: ${selectedTrade?.stopLoss}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Risk (1R): ${selectedTrade ? Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss).toFixed(2) : '0.00'} per unit
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Available Quantity: {selectedTrade ? (selectedTrade.remainingQuantity !== undefined ? selectedTrade.remainingQuantity : selectedTrade.quantity) : ''} {selectedTrade?.quantityType === 'dollars' ? '$' : 'coins'}
+            </Typography>
+            
+            <TextField
+              margin="dense"
+              label="Exit Price"
+              type="number"
+              fullWidth
+              value={exitPrice}
+              onChange={(e) => setExitPrice(e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
+              sx={{ mb: 2 }}
+            />
+            
+            {/* Add R-multiple preset buttons */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Preset Exit Prices:
+              </Typography>
+              <ButtonGroup size="small" sx={{ mb: 1 }}>
+                <Button 
+                  onClick={() => handleExitPriceOptionChange('entry')}
+                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                >
+                  Entry
+                </Button>
+                <Button 
+                  onClick={() => handleExitPriceOptionChange('stopLoss')}
+                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                >
+                  Stop Loss
+                </Button>
+                <Button 
+                  onClick={() => handleSetRMultipleExit(1)}
+                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                >
+                  1R
+                </Button>
+                <Button 
+                  onClick={() => handleSetRMultipleExit(2)}
+                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                >
+                  2R
+                </Button>
+                <Button 
+                  onClick={() => handleSetRMultipleExit(3)}
+                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                >
+                  3R
+                </Button>
+              </ButtonGroup>
+              
+              {selectedTrade && (
+                <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {[1, 2, 3].map(r => {
+                    const isShort = selectedTrade.cryptocurrency.toLowerCase().includes('short');
+                    const priceDiff = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+                    const rPrice = isShort 
+                      ? selectedTrade.entryPrice - (priceDiff * r)
+                      : selectedTrade.entryPrice + (priceDiff * r);
+                    
+                    return (
+                      <Chip 
+                        key={r}
+                        label={`${r}R = $${formatFullDecimal(rPrice)}`}
+                        size="small"
+                        sx={{ 
+                          bgcolor: r === 1 ? '#2196f3' : r === 2 ? '#9c27b0' : '#4caf50', 
+                          color: 'white' 
+                        }}
+                      />
+                    );
+                  })}
+                </Box>
+              )}
+            </Box>
+            
+            <TextField
+              margin="dense"
+              label="Quantity to Close"
+              type="number"
+              fullWidth
+              value={partialExitQuantity}
+              onChange={(e) => setPartialExitQuantity(e.target.value)}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">{selectedTrade?.quantityType === 'dollars' ? '$' : 'coins'}</InputAdornment>,
+              }}
+              sx={{ mb: 2 }}
+            />
+            
+            {/* Add preset quantity buttons */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Preset Quantities:
+              </Typography>
+              <ButtonGroup size="small" sx={{ mb: 1 }}>
+                <Button onClick={() => handleSetPartialPosition(25)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>25%</Button>
+                <Button onClick={() => handleSetPartialPosition(50)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>50%</Button>
+                <Button onClick={() => handleSetPartialPosition(75)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>75%</Button>
+                <Button onClick={() => handleSetPartialPosition(100)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>100%</Button>
+              </ButtonGroup>
+            </Box>
+            
+            <TextField
+              margin="dense"
+              label="Notes (optional)"
+              fullWidth
+              multiline
+              rows={2}
+              value={partialExitNotes}
+              onChange={(e) => setPartialExitNotes(e.target.value)}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePartialCloseDialog}>Cancel</Button>
+          <Button onClick={handlePartialCloseTrade} color="primary">Partial Close</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Trailing Stop Dialog */}
+      <Dialog open={openTrailingStopDialog} onClose={handleCloseTrailingStopDialog}>
+        <DialogTitle>Set Trailing Stop</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" gutterBottom>
+            Set a trailing stop that will automatically adjust as the price moves in your favor.
+          </Typography>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              {selectedTrade?.cryptocurrency}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Current Stop Loss: ${selectedTrade?.stopLoss}
+            </Typography>
+            
+            <TextField
+              margin="dense"
+              label="Trailing Amount"
+              type="number"
+              fullWidth
+              value={trailingAmount}
+              onChange={(e) => setTrailingAmount(e.target.value)}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">{trailingType === 'percentage' ? '%' : '$'}</InputAdornment>,
+              }}
+              sx={{ mb: 2 }}
+            />
+            
+            <ToggleButtonGroup
+              value={trailingType}
+              exclusive
+              onChange={(e, value) => value && setTrailingType(value)}
+              aria-label="trailing type"
+              size="small"
+              sx={{ mb: 2 }}
+            >
+              <ToggleButton value="percentage" aria-label="percentage">
+                Percentage
+              </ToggleButton>
+              <ToggleButton value="fixed" aria-label="fixed amount">
+                Fixed Amount
+              </ToggleButton>
+            </ToggleButtonGroup>
+            
+            <Typography variant="body2" color="text.secondary">
+              {trailingType === 'percentage' 
+                ? `The stop loss will trail ${trailingAmount}% behind the highest price reached.`
+                : `The stop loss will trail $${trailingAmount} behind the highest price reached.`
+              }
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseTrailingStopDialog}>Cancel</Button>
+          <Button onClick={handleSetTrailingStop} color="primary">Set Trailing Stop</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Edit Trade Dialog */}
+      <Dialog open={openEditTradeDialog} onClose={handleCloseEditTradeDialog}>
+        <DialogTitle>Edit Trade</DialogTitle>
+        <DialogContent>
+          <TextField
+            margin="dense"
+            label="Name"
+            type="text"
+            fullWidth
+            value={editedTrade.name}
+            onChange={(e) => handleEditTradeChange('name', e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            label="Cryptocurrency"
+            type="text"
+            fullWidth
+            value={editedTrade.cryptocurrency}
+            onChange={(e) => handleEditTradeChange('cryptocurrency', e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            label="Entry Price"
+            type="text"
+            fullWidth
+            value={editedTrade.entryPrice ? formatFullDecimal(editedTrade.entryPrice) : ''}
+            onChange={(e) => handleEditTradeChange('entryPrice', parseFloat(e.target.value))}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+          />
+          <TextField
+            margin="dense"
+            label="Exit Price"
+            type="text"
+            fullWidth
+            value={editedTrade.exitPrice ? formatFullDecimal(editedTrade.exitPrice) : ''}
+            onChange={(e) => handleEditTradeChange('exitPrice', parseFloat(e.target.value))}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+          />
+          <TextField
+            margin="dense"
+            label="Quantity"
+            type="number"
+            fullWidth
+            value={editedTrade.quantity}
+            onChange={(e) => handleEditTradeChange('quantity', parseFloat(e.target.value))}
+          />
+          <TextField
+            margin="dense"
+            label="Quantity Type"
+            type="text"
+            fullWidth
+            value={editedTrade.quantityType}
+            onChange={(e) => handleEditTradeChange('quantityType', e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            label="Stop Loss"
+            type="text"
+            fullWidth
+            value={editedTrade.stopLoss ? formatFullDecimal(editedTrade.stopLoss) : ''}
+            onChange={(e) => handleEditTradeChange('stopLoss', parseFloat(e.target.value))}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+          />
+          <TextField
+            margin="dense"
+            label="Entry Date"
+            type="datetime-local"
+            fullWidth
+            value={editedTrade.entryDate}
+            onChange={(e) => handleEditTradeChange('entryDate', e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            label="Exit Date"
+            type="datetime-local"
+            fullWidth
+            value={editedTrade.exitDate}
+            onChange={(e) => handleEditTradeChange('exitDate', e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            label="Notes"
+            type="text"
+            fullWidth
+            value={editedTrade.notes}
+            onChange={(e) => handleEditTradeChange('notes', e.target.value)}
+            multiline
+            rows={4}
+          />
+          <TextField
+            margin="dense"
+            label="Lessons Learned"
+            type="text"
+            fullWidth
+            value={editedTrade.lessonsLearned}
+            onChange={(e) => handleEditTradeChange('lessonsLearned', e.target.value)}
+            multiline
+            rows={4}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseEditTradeDialog}>Cancel</Button>
+          <Button onClick={handleSaveEditedTrade} color="primary">Save</Button>
         </DialogActions>
       </Dialog>
       

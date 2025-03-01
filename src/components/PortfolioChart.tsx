@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, 
   Typography, 
@@ -9,7 +9,9 @@ import {
   Button,
   useTheme,
   ToggleButtonGroup,
-  ToggleButton
+  ToggleButton,
+  IconButton,
+  Tooltip
 } from '@mui/material';
 import { 
   Chart as ChartJS, 
@@ -18,42 +20,53 @@ import {
   PointElement,
   LineElement,
   Title,
-  Tooltip,
+  Tooltip as ChartTooltip,
   Legend,
-  TimeScale
+  TimeScale,
+  ChartOptions
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import { useTrades, usePortfolio } from '../context/TradeContext';
 import { PortfolioPerformance } from '../types';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import PanToolIcon from '@mui/icons-material/PanTool';
+import zoomPlugin from 'chartjs-plugin-zoom';
 
+// Register the zoom plugin
 ChartJS.register(
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
   Title,
-  Tooltip,
+  ChartTooltip,
   Legend,
-  TimeScale
+  TimeScale,
+  zoomPlugin
 );
 
 const PortfolioChart: React.FC = () => {
   const { 
     getPortfolioPerformance, 
     portfolioSettings, 
-    setPortfolioSettings 
+    setPortfolioSettings,
+    trades
   } = useTrades();
   
   // Use the global portfolio value from the usePortfolio hook if needed
   const { portfolioValue } = usePortfolio();
   
   const theme = useTheme();
+  const chartRef = useRef<any>(null);
   
   const [timeRange, setTimeRange] = useState<'1m' | '3m' | '6m' | '1y' | 'all'>('all');
+  const [isZoomed, setIsZoomed] = useState(false);
   
   // Get performance data
-  const performanceData = getPortfolioPerformance();
+  const performanceData = getPortfolioPerformance('all');
   
   // Filter data based on selected time range
   const filteredData = React.useMemo(() => {
@@ -76,6 +89,32 @@ const PortfolioChart: React.FC = () => {
     
     return performanceData.filter(item => new Date(item.date) >= startDate);
   }, [performanceData, timeRange]);
+  
+  // Determine the start date for the chart
+  const chartStartDate = React.useMemo(() => {
+    if (filteredData.length === 0) return null;
+    
+    // Get the first trade date
+    const sortedTrades = [...trades].sort((a, b) => 
+      new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime()
+    );
+    
+    if (sortedTrades.length === 0) return null;
+    
+    const firstTradeDate = new Date(sortedTrades[0].entryDate);
+    
+    // If there are less than 5 days of trading data, look 5 days in the past
+    const today = new Date();
+    const daysSinceFirstTrade = Math.floor((today.getTime() - firstTradeDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (daysSinceFirstTrade < 5) {
+      const startDate = new Date(firstTradeDate);
+      startDate.setDate(startDate.getDate() - (5 - daysSinceFirstTrade));
+      return startDate;
+    }
+    
+    return firstTradeDate;
+  }, [trades, filteredData]);
   
   // Handle portfolio start date change
   const handleStartDateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,6 +145,59 @@ const PortfolioChart: React.FC = () => {
     }
   };
   
+  // Zoom handlers
+  const handleZoomIn = () => {
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      // Access the chart instance
+      if (chart && chart.zoom) {
+        chart.zoom(1.1);
+      }
+    }
+  };
+  
+  const handleZoomOut = () => {
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      // Access the chart instance
+      if (chart && chart.zoom) {
+        chart.zoom(0.9);
+      }
+    }
+  };
+  
+  const handleResetZoom = () => {
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      // Access the chart instance
+      if (chart && chart.resetZoom) {
+        chart.resetZoom();
+      }
+    }
+  };
+  
+  // Update zoom state when zooming in/out
+  useEffect(() => {
+    const handleZoomChange = () => {
+      if (chartRef.current) {
+        const chart = chartRef.current;
+        // Check if we're zoomed by comparing the current range to the original range
+        const xScale = chart.scales.x;
+        if (xScale) {
+          const isCurrentlyZoomed = xScale.min !== undefined || xScale.max !== undefined;
+          setIsZoomed(isCurrentlyZoomed);
+        }
+      }
+    };
+    
+    // Add event listener to chart for zoom events
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      chart.options.plugins.zoom.zoom.onZoom = handleZoomChange;
+      chart.options.plugins.zoom.pan.onPan = handleZoomChange;
+    }
+  }, [chartRef.current]);
+  
   // Prepare chart data
   const chartData = {
     labels: filteredData.map(item => item.date),
@@ -133,7 +225,7 @@ const PortfolioChart: React.FC = () => {
     ],
   };
   
-  // Chart options
+  // Chart options with zoom plugin
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -150,7 +242,8 @@ const PortfolioChart: React.FC = () => {
         title: {
           display: true,
           text: 'Date'
-        }
+        },
+        min: chartStartDate ? chartStartDate.toISOString().split('T')[0] : undefined,
       },
       y: {
         title: {
@@ -175,6 +268,30 @@ const PortfolioChart: React.FC = () => {
               label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
             }
             return label;
+          }
+        }
+      },
+      zoom: {
+        limits: {
+          // Prevent zooming out beyond the data range
+          y: {min: 'original' as const, max: 'original' as const},
+        },
+        pan: {
+          enabled: true, // Always enable panning
+          mode: 'x' as const, // Only pan horizontally
+          threshold: 10, // Make it easier to start panning
+        },
+        zoom: {
+          wheel: {
+            enabled: true,
+            speed: 0.1, // Slower zoom for more control
+          },
+          pinch: {
+            enabled: true
+          },
+          mode: 'x' as const, // Only zoom horizontally
+          drag: {
+            enabled: false, // Disable rectangular selection zoom
           }
         }
       }
@@ -237,34 +354,67 @@ const PortfolioChart: React.FC = () => {
           </Typography>
         </Box>
         
-        <ToggleButtonGroup
-          value={timeRange}
-          exclusive
-          onChange={handleTimeRangeChange}
-          aria-label="time range"
-          size="small"
-        >
-          <ToggleButton value="1m" aria-label="1 month">
-            1M
-          </ToggleButton>
-          <ToggleButton value="3m" aria-label="3 months">
-            3M
-          </ToggleButton>
-          <ToggleButton value="6m" aria-label="6 months">
-            6M
-          </ToggleButton>
-          <ToggleButton value="1y" aria-label="1 year">
-            1Y
-          </ToggleButton>
-          <ToggleButton value="all" aria-label="all time">
-            All
-          </ToggleButton>
-        </ToggleButtonGroup>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ mr: 2 }}>
+            <Tooltip title="Zoom In">
+              <IconButton onClick={handleZoomIn} size="small">
+                <ZoomInIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Zoom Out">
+              <IconButton onClick={handleZoomOut} size="small">
+                <ZoomOutIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Reset View">
+              <IconButton 
+                onClick={handleResetZoom} 
+                size="small"
+                color={isZoomed ? "primary" : "default"}
+                disabled={!isZoomed}
+              >
+                <RestartAltIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          
+          <ToggleButtonGroup
+            value={timeRange}
+            exclusive
+            onChange={handleTimeRangeChange}
+            aria-label="time range"
+            size="small"
+          >
+            <ToggleButton value="1m" aria-label="1 month">
+              1M
+            </ToggleButton>
+            <ToggleButton value="3m" aria-label="3 months">
+              3M
+            </ToggleButton>
+            <ToggleButton value="6m" aria-label="6 months">
+              6M
+            </ToggleButton>
+            <ToggleButton value="1y" aria-label="1 year">
+              1Y
+            </ToggleButton>
+            <ToggleButton value="all" aria-label="all time">
+              All
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
       </Box>
       
       <Box sx={{ height: 400 }}>
         {filteredData.length > 0 ? (
-          <Line data={chartData} options={chartOptions} />
+          <Line 
+            data={chartData} 
+            options={chartOptions} 
+            ref={(reference) => {
+              if (reference) {
+                chartRef.current = reference;
+              }
+            }} 
+          />
         ) : (
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
             <Typography variant="body1" color="textSecondary">

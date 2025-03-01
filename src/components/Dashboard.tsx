@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Box, 
   Typography, 
@@ -32,6 +32,7 @@ import { Pie, Bar } from 'react-chartjs-2';
 import { useTrades, usePortfolio } from '../context/TradeContext';
 import { TimePeriod, PortfolioPerformance } from '../types';
 import PortfolioChart from './PortfolioChart';
+import PortfolioSummary from './PortfolioSummary';
 
 ChartJS.register(
   ArcElement, 
@@ -46,11 +47,12 @@ ChartJS.register(
 );
 
 const Dashboard: React.FC = () => {
-  const { 
-    trades, 
-    getTradeStats, 
-    getBitcoinComparison, 
-    yearStartBalance, 
+  const {
+    trades,
+    portfolioValue,
+    getTradeStats,
+    getBitcoinComparison,
+    yearStartBalance,
     setYearStartBalance,
     monthStartBalance,
     setMonthStartBalance,
@@ -59,28 +61,36 @@ const Dashboard: React.FC = () => {
     allTimeStartBalance,
     setAllTimeStartBalance,
     getPortfolioPerformance,
-    portfolioSettings
+    portfolioSettings,
+    setPortfolioValue,
+    calculateCurrentPortfolioValue
   } = useTrades();
   
-  // Use the global portfolio value from the usePortfolio hook
-  const { portfolioValue } = usePortfolio();
+  const { portfolioValue: globalPortfolioValue } = usePortfolio();
   
   const theme = useTheme();
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('all');
   const [portfolioPerformance, setPortfolioPerformance] = useState<PortfolioPerformance[]>([]);
   
+  // Initialize stats and BTC comparison with the current time period
+  const initialStats = useMemo(() => getTradeStats(timePeriod), [getTradeStats, timePeriod]);
+  const initialBtcComparison = useMemo(() => getBitcoinComparison(timePeriod), [getBitcoinComparison, timePeriod]);
+  
+  const [stats, setStats] = useState(initialStats);
+  const [btcComparison, setBtcComparison] = useState(initialBtcComparison);
+  
   // Fetch portfolio performance data
   useEffect(() => {
-    const performanceData = getPortfolioPerformance();
+    const performanceData = getPortfolioPerformance(timePeriod);
     setPortfolioPerformance(performanceData);
-  }, [getPortfolioPerformance, trades]);
+  }, [getPortfolioPerformance, trades, timePeriod]);
   
   // Set default values for start balances based on portfolio performance
   useEffect(() => {
     if (portfolioPerformance.length > 0) {
       // Get the oldest portfolio value for all time
       const oldestData = portfolioPerformance[0];
-      if (oldestData && allTimeStartBalance === portfolioValue) {
+      if (oldestData && allTimeStartBalance === globalPortfolioValue) {
         setAllTimeStartBalance(oldestData.portfolioValue);
       }
       
@@ -88,7 +98,7 @@ const Dashboard: React.FC = () => {
       const currentYear = new Date().getFullYear();
       const yearStart = `${currentYear}-01-01`;
       const yearStartData = portfolioPerformance.find(p => p.date.startsWith(yearStart));
-      if (yearStartData && yearStartBalance === portfolioValue) {
+      if (yearStartData && yearStartBalance === globalPortfolioValue) {
         setYearStartBalance(yearStartData.portfolioValue);
       }
       
@@ -99,7 +109,7 @@ const Dashboard: React.FC = () => {
       const quarterStartDate = new Date(currentDate.getFullYear(), quarterStartMonth, 1);
       const quarterStart = quarterStartDate.toISOString().split('T')[0];
       const quarterStartData = portfolioPerformance.find(p => p.date >= quarterStart);
-      if (quarterStartData && quarterStartBalance === portfolioValue) {
+      if (quarterStartData && quarterStartBalance === globalPortfolioValue) {
         setQuarterStartBalance(quarterStartData.portfolioValue);
       }
       
@@ -107,7 +117,7 @@ const Dashboard: React.FC = () => {
       const monthStartDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const monthStart = monthStartDate.toISOString().split('T')[0];
       const monthStartData = portfolioPerformance.find(p => p.date >= monthStart);
-      if (monthStartData && monthStartBalance === portfolioValue) {
+      if (monthStartData && monthStartBalance === globalPortfolioValue) {
         setMonthStartBalance(monthStartData.portfolioValue);
       }
     }
@@ -121,18 +131,26 @@ const Dashboard: React.FC = () => {
     yearStartBalance,
     quarterStartBalance,
     monthStartBalance,
-    portfolioValue
+    globalPortfolioValue
   ]);
   
-  const stats = getTradeStats();
-  const btcComparison = getBitcoinComparison(timePeriod);
+  useEffect(() => {
+    // Update stats when time period changes
+    setStats(getTradeStats(timePeriod));
+    setBtcComparison(getBitcoinComparison(timePeriod));
+    
+    // Update portfolio value
+    const newValue = calculateCurrentPortfolioValue();
+    setPortfolioValue(newValue);
+  }, [timePeriod, trades, getTradeStats, getBitcoinComparison, calculateCurrentPortfolioValue, setPortfolioValue]);
   
   const handleTimePeriodChange = (
     event: React.MouseEvent<HTMLElement>,
     newPeriod: TimePeriod | null,
   ) => {
-    if (newPeriod !== null) {
+    if (newPeriod) {
       setTimePeriod(newPeriod);
+      // Stats and BTC comparison will be updated in the useEffect
     }
   };
   
@@ -263,8 +281,11 @@ const Dashboard: React.FC = () => {
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
       <Typography variant="h4" gutterBottom>
-        Trading Dashboard
+        Dashboard
       </Typography>
+      
+      {/* Add PortfolioSummary component */}
+      <PortfolioSummary />
       
       {/* Portfolio Performance Chart */}
       <PortfolioChart />
@@ -434,8 +455,32 @@ const Dashboard: React.FC = () => {
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
                   <Typography>Portfolio Value:</Typography>
-                  <Typography>${portfolioValue.toFixed(2)}</Typography>
+                  <Typography>${globalPortfolioValue.toFixed(2)}</Typography>
                 </Box>
+                {stats.bestTrade && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
+                    <Typography>Best Trade:</Typography>
+                    <Typography color="success.main">
+                      {stats.bestTrade.cryptocurrency} (${(stats.bestTrade as any).profit.toFixed(2)})
+                    </Typography>
+                  </Box>
+                )}
+                {stats.worstTrade && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
+                    <Typography>Worst Trade:</Typography>
+                    <Typography color="error.main">
+                      {stats.worstTrade.cryptocurrency} (${(stats.worstTrade as any).profit.toFixed(2)})
+                    </Typography>
+                  </Box>
+                )}
+                {stats.averageR !== 0 && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
+                    <Typography>Average R:</Typography>
+                    <Typography color={stats.averageR >= 0 ? 'success.main' : 'error.main'}>
+                      {stats.averageR.toFixed(2)}R
+                    </Typography>
+                  </Box>
+                )}
               </Grid>
               
               <Grid item xs={12} md={6}>

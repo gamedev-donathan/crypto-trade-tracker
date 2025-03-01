@@ -1,16 +1,34 @@
 export interface Trade {
   id: string;
+  name?: string;
   cryptocurrency: string;
   coinId: string;
   entryPrice: number;
+  exitPrice?: number;
   quantity: number;
   quantityType: 'coins' | 'dollars';
   stopLoss: number;
   entryDate: string;
   exitDate?: string;
-  exitPrice?: number;
   notes?: string;
+  lessonsLearned?: string;
   isActive: boolean;
+  partialExits?: PartialExit[];
+  remainingQuantity?: number;
+  originalQuantity?: number;
+  isTrailingStop?: boolean;
+  trailingAmount?: number;
+  trailingType?: 'percentage' | 'fixed';
+  highestPrice?: number;
+  lowestPrice?: number;
+}
+
+export interface PartialExit {
+  id: string;
+  exitDate: string;
+  exitPrice: number;
+  exitQuantity: number;
+  notes?: string;
 }
 
 export interface TradeStats {
@@ -22,6 +40,9 @@ export interface TradeStats {
   averageProfit: number;
   averageLoss: number;
   profitFactor: number;
+  bestTrade: Trade | null;
+  worstTrade: Trade | null;
+  averageR: number;
 }
 
 export interface BitcoinComparison {
