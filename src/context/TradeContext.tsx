@@ -636,45 +636,114 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       return sum + profit;
     }, 0);
     
-    // Determine the appropriate start balance based on the selected period
+    // Get portfolio performance data for the selected period
+    const performanceData = getPortfolioPerformance(actualPeriod);
+    
+    // Variables to track if we're using the exact start of the period
+    let isFullPeriod = true;
+    let actualStartDate = '';
     let startBalance = allTimeStartBalance;
-    switch (actualPeriod) {
-      case 'month':
-        startBalance = monthStartBalance;
-        break;
-      case 'quarter':
-        startBalance = quarterStartBalance;
-        break;
-      case 'year':
-        startBalance = yearStartBalance;
-        break;
-    }
+    let periodStartDate: Date | null = null;
     
-    // Simplified Bitcoin holding profit calculation (assuming 10% monthly growth)
+    // Determine the appropriate start date and balance based on the selected period
     const now = new Date();
-    let monthsPassed = 0;
     
     switch (actualPeriod) {
       case 'month':
-        monthsPassed = 1;
+        // Start of current month
+        periodStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
         break;
       case 'quarter':
-        monthsPassed = 3;
+        // Start of current quarter
+        const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+        periodStartDate = new Date(now.getFullYear(), quarterStartMonth, 1);
         break;
       case 'year':
-        monthsPassed = 12;
+        // Start of current year
+        periodStartDate = new Date(now.getFullYear(), 0, 1);
         break;
       case 'all':
-        // Calculate months since the first trade or portfolio start date
-        const firstTradeDate = trades.length > 0 
-          ? new Date(Math.min(...trades.map(t => new Date(t.entryDate).getTime())))
-          : new Date(portfolioSettings.startDate);
-        
-        monthsPassed = (now.getFullYear() - firstTradeDate.getFullYear()) * 12 + 
-                      (now.getMonth() - firstTradeDate.getMonth());
-        monthsPassed = Math.max(1, monthsPassed); // At least 1 month
+        // Use portfolio start date from settings
+        periodStartDate = new Date(portfolioSettings.startDate);
         break;
     }
+    
+    if (periodStartDate) {
+      // Format date to YYYY-MM-DD for comparison
+      const formattedPeriodStartDate = periodStartDate.toISOString().split('T')[0];
+      
+      // Find the closest portfolio value to the period start date
+      if (performanceData.length > 0) {
+        // Sort by date (should already be sorted, but just to be safe)
+        const sortedPerformance = [...performanceData].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        
+        // Try to find exact match for period start date
+        const exactMatch = sortedPerformance.find(p => p.date === formattedPeriodStartDate);
+        
+        if (exactMatch) {
+          // We have data for the exact start date
+          startBalance = exactMatch.portfolioValue;
+          actualStartDate = exactMatch.date;
+        } else {
+          // Find the closest date after the period start
+          const closestAfter = sortedPerformance.find(p => p.date >= formattedPeriodStartDate);
+          
+          if (closestAfter) {
+            startBalance = closestAfter.portfolioValue;
+            actualStartDate = closestAfter.date;
+            
+            // Check if this date is different from the period start date
+            isFullPeriod = closestAfter.date === formattedPeriodStartDate;
+          } else if (sortedPerformance.length > 0) {
+            // If no data after period start, use the earliest data point
+            const earliest = sortedPerformance[0];
+            startBalance = earliest.portfolioValue;
+            actualStartDate = earliest.date;
+            isFullPeriod = false;
+          }
+        }
+      }
+    }
+    
+    // Calculate months passed for Bitcoin growth
+    let monthsPassed = 0;
+    
+    if (actualStartDate) {
+      const startDate = new Date(actualStartDate);
+      monthsPassed = (now.getFullYear() - startDate.getFullYear()) * 12 + 
+                    (now.getMonth() - startDate.getMonth());
+      
+      // Add partial month based on days
+      const daysPassed = now.getDate() - startDate.getDate();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      monthsPassed += daysPassed / daysInMonth;
+    } else {
+      // Fallback to default calculation
+      switch (actualPeriod) {
+        case 'month':
+          monthsPassed = 1;
+          break;
+        case 'quarter':
+          monthsPassed = 3;
+          break;
+        case 'year':
+          monthsPassed = 12;
+          break;
+        case 'all':
+          // Calculate months since the first trade or portfolio start date
+          const firstTradeDate = trades.length > 0 
+            ? new Date(Math.min(...trades.map(t => new Date(t.entryDate).getTime())))
+            : new Date(portfolioSettings.startDate);
+          
+          monthsPassed = (now.getFullYear() - firstTradeDate.getFullYear()) * 12 + 
+                        (now.getMonth() - firstTradeDate.getMonth());
+          break;
+      }
+    }
+    
+    monthsPassed = Math.max(0.1, monthsPassed); // At least 0.1 month to avoid division by zero
     
     // Calculate Bitcoin growth rate (10% monthly)
     const bitcoinGrowthRate = Math.pow(1.1, monthsPassed) - 1;
@@ -691,7 +760,10 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
         yearStartBalance,
         monthStartBalance,
         quarterStartBalance,
-        allTimeStartBalance
+        allTimeStartBalance,
+        startBalance,
+        isFullPeriod,
+        actualStartDate
       };
     }
     
@@ -710,7 +782,10 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       yearStartBalance,
       monthStartBalance,
       quarterStartBalance,
-      allTimeStartBalance
+      allTimeStartBalance,
+      startBalance,
+      isFullPeriod,
+      actualStartDate
     };
   };
 

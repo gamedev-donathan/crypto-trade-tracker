@@ -55,6 +55,9 @@ export interface BitcoinComparison {
   monthStartBalance?: number;
   quarterStartBalance?: number;
   allTimeStartBalance?: number;
+  startBalance: number;
+  isFullPeriod: boolean;
+  actualStartDate: string;
 }
 
 export type TimePeriod = 'all' | 'month' | 'quarter' | 'year';

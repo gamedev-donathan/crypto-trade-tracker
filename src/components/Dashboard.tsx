@@ -233,6 +233,10 @@ const Dashboard: React.FC = () => {
   };
 
   const getStartBalanceLabel = (period: TimePeriod): string => {
+    if (!btcComparison.isFullPeriod) {
+      return `Bitcoin Investment (from ${new Date(btcComparison.actualStartDate).toLocaleDateString()})`;
+    }
+    
     switch (period) {
       case 'month':
         return 'Initial Bitcoin Investment (This Month)';
@@ -245,22 +249,10 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const getCurrentStartBalance = (period: TimePeriod): number => {
-    switch (period) {
-      case 'month':
-        return monthStartBalance;
-      case 'quarter':
-        return quarterStartBalance;
-      case 'year':
-        return yearStartBalance;
-      default:
-        return allTimeStartBalance;
-    }
-  };
-
   const handleStartBalanceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(event.target.value);
     if (!isNaN(value) && value >= 0) {
+      // Update the appropriate balance based on the time period
       switch (timePeriod) {
         case 'month':
           setMonthStartBalance(value);
@@ -275,6 +267,9 @@ const Dashboard: React.FC = () => {
           setAllTimeStartBalance(value);
           break;
       }
+      
+      // Force an update of the Bitcoin comparison
+      setBtcComparison(getBitcoinComparison(timePeriod));
     }
   };
 
@@ -396,7 +391,7 @@ const Dashboard: React.FC = () => {
               <TextField
                 label={getStartBalanceLabel(timePeriod)}
                 type="number"
-                value={getCurrentStartBalance(timePeriod)}
+                value={btcComparison.startBalance}
                 onChange={handleStartBalanceChange}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
@@ -404,9 +399,13 @@ const Dashboard: React.FC = () => {
                 size="small"
                 sx={{ width: '300px' }}
               />
-              <Tooltip title={`Enter the amount you would have invested in Bitcoin at the start of the ${getPeriodLabel(timePeriod).toLowerCase()} period to compare with your actual trading performance`}>
+              <Tooltip title={
+                btcComparison.isFullPeriod 
+                  ? `Enter the amount you would have invested in Bitcoin at the start of the ${getPeriodLabel(timePeriod).toLowerCase()} period to compare with your actual trading performance`
+                  : `This comparison starts from ${new Date(btcComparison.actualStartDate).toLocaleDateString()} instead of the beginning of the ${getPeriodLabel(timePeriod).toLowerCase()} period because no portfolio data was found for the exact start date. The initial investment amount is based on your portfolio value on ${new Date(btcComparison.actualStartDate).toLocaleDateString()}.`
+              }>
                 <IconButton size="small" sx={{ ml: 1 }}>
-                  <InfoIcon fontSize="small" />
+                  <InfoIcon fontSize="small" color={btcComparison.isFullPeriod ? "inherit" : "warning"} />
                 </IconButton>
               </Tooltip>
             </Box>
@@ -513,9 +512,20 @@ const Dashboard: React.FC = () => {
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
-                  <Typography>Start Balance ({getPeriodLabel(timePeriod)}):</Typography>
-                  <Typography>${getCurrentStartBalance(timePeriod).toFixed(2)}</Typography>
+                  <Typography>
+                    {btcComparison.isFullPeriod 
+                      ? `Start Balance (${getPeriodLabel(timePeriod)}):`
+                      : `Start Balance (${new Date(btcComparison.actualStartDate).toLocaleDateString()}):`}
+                  </Typography>
+                  <Typography>${btcComparison.startBalance.toFixed(2)}</Typography>
                 </Box>
+                {!btcComparison.isFullPeriod && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
+                    <Typography color="warning.main" fontSize="0.875rem">
+                      Note: Comparison starts from {new Date(btcComparison.actualStartDate).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                )}
               </Grid>
             </Grid>
           </Paper>

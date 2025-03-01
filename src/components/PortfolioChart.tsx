@@ -275,6 +275,15 @@ const PortfolioChart: React.FC = () => {
         limits: {
           // Prevent zooming out beyond the data range
           y: {min: 'original' as const, max: 'original' as const},
+          x: {
+            min: (() => {
+              // Get portfolio start date and subtract 3 days
+              const startDate = new Date(portfolioSettings.startDate);
+              startDate.setDate(startDate.getDate() - 3);
+              return startDate.getTime();
+            })(),
+            max: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).getTime()
+          }
         },
         pan: {
           enabled: true, // Always enable panning

@@ -23,7 +23,7 @@ A React application for tracking cryptocurrency trades using Mark Minervini risk
 
 1. Clone the repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/gamedev-donathan/crypto-trade-tracker
 cd crypto-trade-tracker
 ```
 

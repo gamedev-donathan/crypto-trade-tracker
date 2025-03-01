@@ -895,17 +895,17 @@ const TradeList: React.FC = () => {
                                     <Button 
                                       size="small" 
                                       onClick={handleCancelEditingNotes}
-                                      sx={{ mr: 1 }}
+                                      sx={{ mr: 1, color: 'text.secondary' }}
                                     >
                                       Cancel
                                     </Button>
                                     <Button 
                                       size="small" 
-                                      variant="contained" 
-                                      color="primary"
                                       onClick={() => handleSaveNotes(trade.id)}
+                                      variant="contained"
+                                      color="primary"
                                     >
-                                      Save
+                                      Save Notes
                                     </Button>
                                   </Box>
                                 </Box>
@@ -943,17 +943,17 @@ const TradeList: React.FC = () => {
                                     <Button 
                                       size="small" 
                                       onClick={handleCancelEditingLessons}
-                                      sx={{ mr: 1 }}
+                                      sx={{ mr: 1, color: 'text.secondary' }}
                                     >
                                       Cancel
                                     </Button>
                                     <Button 
                                       size="small" 
-                                      variant="contained" 
-                                      color="primary"
                                       onClick={() => handleSaveLessons(trade.id)}
+                                      variant="contained"
+                                      color="primary"
                                     >
-                                      Save
+                                      Save Lessons
                                     </Button>
                                   </Box>
                                 </Box>
@@ -1135,34 +1135,40 @@ const TradeList: React.FC = () => {
             <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
               Select Exit Price:
             </Typography>
+            {/* Close Trade Dialog preset buttons */}
             <ButtonGroup size="small" sx={{ mb: 2 }}>
               <Button 
                 onClick={() => handleExitPriceOptionChange('entry')}
-                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                variant="contained"
+                color="primary"
               >
                 Entry
               </Button>
               <Button 
                 onClick={() => handleExitPriceOptionChange('stopLoss')}
-                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                variant="contained"
+                color="primary"
               >
                 Stop Loss
               </Button>
               <Button 
                 onClick={() => handleCloseTradeRMultipleExit(1)}
-                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                variant="contained"
+                color="primary"
               >
                 1R
               </Button>
               <Button 
                 onClick={() => handleCloseTradeRMultipleExit(2)}
-                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                variant="contained"
+                color="primary"
               >
                 2R
               </Button>
               <Button 
                 onClick={() => handleCloseTradeRMultipleExit(3)}
-                sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                variant="contained"
+                color="primary"
               >
                 3R
               </Button>
@@ -1216,8 +1222,20 @@ const TradeList: React.FC = () => {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseTradeDialog}>Cancel</Button>
-          <Button onClick={handleCloseTrade} color="primary">Close Trade</Button>
+          <Button 
+            onClick={handleCloseTradeDialog}
+            sx={{ color: 'text.secondary' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCloseTrade} 
+            variant="contained" 
+            color="success"
+            sx={{ px: 3 }}
+          >
+            Close Trade
+          </Button>
         </DialogActions>
       </Dialog>
       
@@ -1230,8 +1248,20 @@ const TradeList: React.FC = () => {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
-          <Button onClick={handleDeleteTrade} color="error">Delete</Button>
+          <Button 
+            onClick={handleCloseDeleteDialog}
+            sx={{ color: 'text.secondary' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteTrade} 
+            variant="contained" 
+            color="error"
+            sx={{ px: 3 }}
+          >
+            Delete
+          </Button>
         </DialogActions>
       </Dialog>
       
@@ -1256,52 +1286,44 @@ const TradeList: React.FC = () => {
               Available Quantity: {selectedTrade ? (selectedTrade.remainingQuantity !== undefined ? selectedTrade.remainingQuantity : selectedTrade.quantity) : ''} {selectedTrade?.quantityType === 'dollars' ? '$' : 'coins'}
             </Typography>
             
-            <TextField
-              margin="dense"
-              label="Exit Price"
-              type="number"
-              fullWidth
-              value={exitPrice}
-              onChange={(e) => setExitPrice(e.target.value)}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">$</InputAdornment>,
-              }}
-              sx={{ mb: 2 }}
-            />
-            
-            {/* Add R-multiple preset buttons */}
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle2" gutterBottom>
                 Preset Exit Prices:
               </Typography>
+              {/* Partial Close Dialog preset buttons for exit prices */}
               <ButtonGroup size="small" sx={{ mb: 1 }}>
                 <Button 
                   onClick={() => handleExitPriceOptionChange('entry')}
-                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                  variant="contained"
+                  color="primary"
                 >
                   Entry
                 </Button>
                 <Button 
                   onClick={() => handleExitPriceOptionChange('stopLoss')}
-                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                  variant="contained"
+                  color="primary"
                 >
                   Stop Loss
                 </Button>
                 <Button 
                   onClick={() => handleSetRMultipleExit(1)}
-                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                  variant="contained"
+                  color="primary"
                 >
                   1R
                 </Button>
                 <Button 
                   onClick={() => handleSetRMultipleExit(2)}
-                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                  variant="contained"
+                  color="primary"
                 >
                   2R
                 </Button>
                 <Button 
                   onClick={() => handleSetRMultipleExit(3)}
-                  sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}
+                  variant="contained"
+                  color="primary"
                 >
                   3R
                 </Button>
@@ -1334,6 +1356,56 @@ const TradeList: React.FC = () => {
             
             <TextField
               margin="dense"
+              label="Exit Price"
+              type="number"
+              fullWidth
+              value={exitPrice}
+              onChange={(e) => setExitPrice(e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
+              sx={{ mb: 2 }}
+            />
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Preset Quantities:
+              </Typography>
+              {/* Partial Close Dialog preset buttons for quantities */}
+              <ButtonGroup size="small" sx={{ mb: 1 }}>
+                <Button 
+                  onClick={() => handleSetPartialPosition(25)}
+                  variant="contained"
+                  color="primary"
+                >
+                  25%
+                </Button>
+                <Button 
+                  onClick={() => handleSetPartialPosition(50)}
+                  variant="contained"
+                  color="primary"
+                >
+                  50%
+                </Button>
+                <Button 
+                  onClick={() => handleSetPartialPosition(75)}
+                  variant="contained"
+                  color="primary"
+                >
+                  75%
+                </Button>
+                <Button 
+                  onClick={() => handleSetPartialPosition(100)}
+                  variant="contained"
+                  color="primary"
+                >
+                  100%
+                </Button>
+              </ButtonGroup>
+            </Box>
+            
+            <TextField
+              margin="dense"
               label="Quantity to Close"
               type="number"
               fullWidth
@@ -1344,19 +1416,6 @@ const TradeList: React.FC = () => {
               }}
               sx={{ mb: 2 }}
             />
-            
-            {/* Add preset quantity buttons */}
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Preset Quantities:
-              </Typography>
-              <ButtonGroup size="small" sx={{ mb: 1 }}>
-                <Button onClick={() => handleSetPartialPosition(25)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>25%</Button>
-                <Button onClick={() => handleSetPartialPosition(50)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>50%</Button>
-                <Button onClick={() => handleSetPartialPosition(75)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>75%</Button>
-                <Button onClick={() => handleSetPartialPosition(100)} sx={{ bgcolor: '#2196f3', color: 'white', '&:hover': { bgcolor: '#1976d2' } }}>100%</Button>
-              </ButtonGroup>
-            </Box>
             
             <TextField
               margin="dense"
@@ -1370,8 +1429,20 @@ const TradeList: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClosePartialCloseDialog}>Cancel</Button>
-          <Button onClick={handlePartialCloseTrade} color="primary">Partial Close</Button>
+          <Button 
+            onClick={handleClosePartialCloseDialog}
+            sx={{ color: 'text.secondary' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handlePartialCloseTrade} 
+            variant="contained" 
+            color="primary"
+            sx={{ px: 3 }}
+          >
+            Partial Close
+          </Button>
         </DialogActions>
       </Dialog>
       
@@ -1428,8 +1499,20 @@ const TradeList: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseTrailingStopDialog}>Cancel</Button>
-          <Button onClick={handleSetTrailingStop} color="primary">Set Trailing Stop</Button>
+          <Button 
+            onClick={handleCloseTrailingStopDialog}
+            sx={{ color: 'text.secondary' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSetTrailingStop} 
+            variant="contained" 
+            color="secondary"
+            sx={{ px: 3 }}
+          >
+            Set Trailing Stop
+          </Button>
         </DialogActions>
       </Dialog>
       
@@ -1540,8 +1623,20 @@ const TradeList: React.FC = () => {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseEditTradeDialog}>Cancel</Button>
-          <Button onClick={handleSaveEditedTrade} color="primary">Save</Button>
+          <Button 
+            onClick={handleCloseEditTradeDialog}
+            sx={{ color: 'text.secondary' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSaveEditedTrade} 
+            variant="contained" 
+            color="primary"
+            sx={{ px: 3 }}
+          >
+            Save
+          </Button>
         </DialogActions>
       </Dialog>
       
