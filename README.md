@@ -1,46 +1,94 @@
-# Getting Started with Create React App
+# Cryptocurrency Trade Tracker
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React application for tracking cryptocurrency trades using Mark Minervini risk management strategies.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Trade Management**: Add, edit, and delete cryptocurrency trades
+- **Risk Analysis**: Calculate and display risk percentage based on entry price, stop loss, and position size
+- **Stop Loss Management**: Update stop loss levels for active trades
+- **Performance Tracking**: View win/loss ratio, profit factor, and overall trading performance
+- **Bitcoin Comparison**: Compare your trading performance against a simple Bitcoin DCA (Dollar Cost Averaging) strategy
+- **CoinGecko Integration**: Search and select from thousands of cryptocurrencies using the CoinGecko API
+- **Flexible Quantity Input**: Enter position size in either coins or dollars
 
-### `npm start`
+## Getting Started
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+### Prerequisites
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+- Node.js (v14 or higher)
+- npm or yarn
 
-### `npm test`
+### Installation
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+1. Clone the repository
+```bash
+git clone <repository-url>
+cd crypto-trade-tracker
+```
 
-### `npm run build`
+2. Install dependencies
+```bash
+npm install
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+3. Start the development server
+```bash
+npm start
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+The application will be available at http://localhost:3000
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Usage
 
-### `npm run eject`
+### Dashboard
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+The dashboard provides an overview of your trading performance, including:
+- Total number of trades
+- Win rate
+- Total profit/loss
+- Profit factor
+- Win/loss ratio chart
+- Comparison with Bitcoin DCA strategy
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### Adding a Trade
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+To add a new trade:
+1. Navigate to the "Add Trade" page
+2. Select position type (Long or Short)
+3. Search for a cryptocurrency using the CoinGecko API or enter a custom one
+4. Enter the entry price (auto-populated for selected cryptocurrencies)
+5. Enter the quantity and select the quantity type (coins or dollars)
+6. Set your stop loss
+7. Add optional notes
+8. Review the risk analysis (risk should ideally be below 2% of portfolio value)
+9. Click "Add Trade"
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+### Managing Trades
 
-## Learn More
+On the "Trade List" page, you can:
+- View all active and closed trades
+- Update stop loss levels for active trades
+- Close trades by entering an exit price
+- Delete trades
+- See equivalent coin amounts for trades entered in dollars
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Risk Management
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+This application implements Mark Minervini's risk management principles:
+- Risk per trade is calculated as a percentage of your total portfolio value
+- The application highlights when risk exceeds 2% of your portfolio
+- Stop loss management helps maintain discipline and limit losses
+
+## Technologies Used
+
+- React
+- TypeScript
+- Material-UI
+- React Router
+- Chart.js
+- CoinGecko API
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
