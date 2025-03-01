@@ -29,8 +29,23 @@ export interface BitcoinComparison {
   holdingProfit: number;
   difference: number;
   percentageDifference: number;
-  period: 'all' | 'month' | 'quarter' | 'year';
+  period: TimePeriod;
   yearStartBalance?: number;
+  monthStartBalance?: number;
+  quarterStartBalance?: number;
+  allTimeStartBalance?: number;
 }
 
-export type TimePeriod = 'all' | 'month' | 'quarter' | 'year'; 
+export type TimePeriod = 'all' | 'month' | 'quarter' | 'year';
+
+export interface PortfolioPerformance {
+  date: string;
+  portfolioValue: number;
+  cumulativeProfit: number;
+  tradeCount: number;
+}
+
+export interface PortfolioSettings {
+  startDate: string;
+  initialBalance: number;
+} 

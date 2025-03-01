@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -29,8 +29,9 @@ import {
   BarElement
 } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
-import { useTrades } from '../context/TradeContext';
-import { TimePeriod } from '../types';
+import { useTrades, usePortfolio } from '../context/TradeContext';
+import { TimePeriod, PortfolioPerformance } from '../types';
+import PortfolioChart from './PortfolioChart';
 
 ChartJS.register(
   ArcElement, 
@@ -45,9 +46,83 @@ ChartJS.register(
 );
 
 const Dashboard: React.FC = () => {
-  const { trades, getTradeStats, getBitcoinComparison, portfolioValue, yearStartBalance, setYearStartBalance } = useTrades();
+  const { 
+    trades, 
+    getTradeStats, 
+    getBitcoinComparison, 
+    yearStartBalance, 
+    setYearStartBalance,
+    monthStartBalance,
+    setMonthStartBalance,
+    quarterStartBalance,
+    setQuarterStartBalance,
+    allTimeStartBalance,
+    setAllTimeStartBalance,
+    getPortfolioPerformance,
+    portfolioSettings
+  } = useTrades();
+  
+  // Use the global portfolio value from the usePortfolio hook
+  const { portfolioValue } = usePortfolio();
+  
   const theme = useTheme();
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('all');
+  const [portfolioPerformance, setPortfolioPerformance] = useState<PortfolioPerformance[]>([]);
+  
+  // Fetch portfolio performance data
+  useEffect(() => {
+    const performanceData = getPortfolioPerformance();
+    setPortfolioPerformance(performanceData);
+  }, [getPortfolioPerformance, trades]);
+  
+  // Set default values for start balances based on portfolio performance
+  useEffect(() => {
+    if (portfolioPerformance.length > 0) {
+      // Get the oldest portfolio value for all time
+      const oldestData = portfolioPerformance[0];
+      if (oldestData && allTimeStartBalance === portfolioValue) {
+        setAllTimeStartBalance(oldestData.portfolioValue);
+      }
+      
+      // Get the start of year portfolio value
+      const currentYear = new Date().getFullYear();
+      const yearStart = `${currentYear}-01-01`;
+      const yearStartData = portfolioPerformance.find(p => p.date.startsWith(yearStart));
+      if (yearStartData && yearStartBalance === portfolioValue) {
+        setYearStartBalance(yearStartData.portfolioValue);
+      }
+      
+      // Get the start of quarter portfolio value
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth();
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+      const quarterStartDate = new Date(currentDate.getFullYear(), quarterStartMonth, 1);
+      const quarterStart = quarterStartDate.toISOString().split('T')[0];
+      const quarterStartData = portfolioPerformance.find(p => p.date >= quarterStart);
+      if (quarterStartData && quarterStartBalance === portfolioValue) {
+        setQuarterStartBalance(quarterStartData.portfolioValue);
+      }
+      
+      // Get the start of month portfolio value
+      const monthStartDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      const monthStart = monthStartDate.toISOString().split('T')[0];
+      const monthStartData = portfolioPerformance.find(p => p.date >= monthStart);
+      if (monthStartData && monthStartBalance === portfolioValue) {
+        setMonthStartBalance(monthStartData.portfolioValue);
+      }
+    }
+  }, [
+    portfolioPerformance, 
+    setAllTimeStartBalance, 
+    setYearStartBalance, 
+    setQuarterStartBalance, 
+    setMonthStartBalance,
+    allTimeStartBalance,
+    yearStartBalance,
+    quarterStartBalance,
+    monthStartBalance,
+    portfolioValue
+  ]);
   
   const stats = getTradeStats();
   const btcComparison = getBitcoinComparison(timePeriod);
@@ -65,6 +140,27 @@ const Dashboard: React.FC = () => {
     const value = parseFloat(event.target.value);
     if (!isNaN(value) && value >= 0) {
       setYearStartBalance(value);
+    }
+  };
+
+  const handleMonthStartBalanceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(event.target.value);
+    if (!isNaN(value) && value >= 0) {
+      setMonthStartBalance(value);
+    }
+  };
+
+  const handleQuarterStartBalanceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(event.target.value);
+    if (!isNaN(value) && value >= 0) {
+      setQuarterStartBalance(value);
+    }
+  };
+
+  const handleAllTimeStartBalanceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(event.target.value);
+    if (!isNaN(value) && value >= 0) {
+      setAllTimeStartBalance(value);
     }
   };
   
@@ -118,11 +214,60 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const getStartBalanceLabel = (period: TimePeriod): string => {
+    switch (period) {
+      case 'month':
+        return 'Initial Bitcoin Investment (This Month)';
+      case 'quarter':
+        return 'Initial Bitcoin Investment (Last 3 Months)';
+      case 'year':
+        return 'Initial Bitcoin Investment (Jan 1st)';
+      default:
+        return 'Initial Bitcoin Investment (All Time)';
+    }
+  };
+
+  const getCurrentStartBalance = (period: TimePeriod): number => {
+    switch (period) {
+      case 'month':
+        return monthStartBalance;
+      case 'quarter':
+        return quarterStartBalance;
+      case 'year':
+        return yearStartBalance;
+      default:
+        return allTimeStartBalance;
+    }
+  };
+
+  const handleStartBalanceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(event.target.value);
+    if (!isNaN(value) && value >= 0) {
+      switch (timePeriod) {
+        case 'month':
+          setMonthStartBalance(value);
+          break;
+        case 'quarter':
+          setQuarterStartBalance(value);
+          break;
+        case 'year':
+          setYearStartBalance(value);
+          break;
+        default:
+          setAllTimeStartBalance(value);
+          break;
+      }
+    }
+  };
+
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
       <Typography variant="h4" gutterBottom>
         Trading Dashboard
       </Typography>
+      
+      {/* Portfolio Performance Chart */}
+      <PortfolioChart />
       
       <Grid container spacing={3}>
         {/* Summary Cards */}
@@ -226,26 +371,24 @@ const Dashboard: React.FC = () => {
               </ToggleButtonGroup>
             </Box>
             
-            {timePeriod === 'year' && (
-              <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-                <TextField
-                  label="Portfolio Balance (Jan 1st)"
-                  type="number"
-                  value={yearStartBalance}
-                  onChange={handleYearStartBalanceChange}
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                  }}
-                  size="small"
-                  sx={{ width: '250px' }}
-                />
-                <Tooltip title="Enter your portfolio balance at the start of the year to accurately compare your trading performance with simply holding Bitcoin">
-                  <IconButton size="small" sx={{ ml: 1 }}>
-                    <InfoIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            )}
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+              <TextField
+                label={getStartBalanceLabel(timePeriod)}
+                type="number"
+                value={getCurrentStartBalance(timePeriod)}
+                onChange={handleStartBalanceChange}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+                size="small"
+                sx={{ width: '300px' }}
+              />
+              <Tooltip title={`Enter the amount you would have invested in Bitcoin at the start of the ${getPeriodLabel(timePeriod).toLowerCase()} period to compare with your actual trading performance`}>
+                <IconButton size="small" sx={{ ml: 1 }}>
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
             
             <Box sx={{ height: 300, display: 'flex', justifyContent: 'center' }}>
               {stats.totalTrades > 0 ? (
@@ -324,12 +467,10 @@ const Dashboard: React.FC = () => {
                     {btcComparison.percentageDifference.toFixed(2)}%
                   </Typography>
                 </Box>
-                {timePeriod === 'year' && (
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
-                    <Typography>Year Start Balance:</Typography>
-                    <Typography>${yearStartBalance.toFixed(2)}</Typography>
-                  </Box>
-                )}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', my: 1 }}>
+                  <Typography>Start Balance ({getPeriodLabel(timePeriod)}):</Typography>
+                  <Typography>${getCurrentStartBalance(timePeriod).toFixed(2)}</Typography>
+                </Box>
               </Grid>
             </Grid>
           </Paper>

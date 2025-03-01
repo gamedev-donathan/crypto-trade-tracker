@@ -23,7 +23,7 @@ import {
   Tabs,
   Tab
 } from '@mui/material';
-import { useTrades } from '../context/TradeContext';
+import { useTrades, usePortfolio } from '../context/TradeContext';
 import coinGeckoService, { Coin } from '../services/coinGeckoService';
 
 interface TabPanelProps {
@@ -58,16 +58,17 @@ const TradeForm: React.FC = () => {
     calculateRisk, 
     calculatePositionFromRisk,
     calculateStopLossFromRisk,
-    calculatePositionFromDollarRisk,
-    portfolioValue, 
-    setPortfolioValue 
+    calculatePositionFromDollarRisk
   } = useTrades();
+  
+  // Use the global portfolio value from the usePortfolio hook
+  const { portfolioValue, setPortfolioValue } = usePortfolio();
   
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   const [customCoin, setCustomCoin] = useState<string>('');
   const [entryPrice, setEntryPrice] = useState<string>('');
   const [quantity, setQuantity] = useState<string>('');
-  const [quantityType, setQuantityType] = useState<'coins' | 'dollars'>('coins');
+  const [quantityType, setQuantityType] = useState<'dollars' | 'coins'>('dollars');
   const [stopLoss, setStopLoss] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [risk, setRisk] = useState<number | null>(null);
@@ -126,7 +127,10 @@ const TradeForm: React.FC = () => {
         setLoading(true);
         const price = await coinGeckoService.getCoinPrice(selectedCoin.id);
         if (price) {
-          setEntryPrice(price.toString());
+          // Format the price to display full decimal instead of scientific notation
+          setEntryPrice(price.toString().includes('e') ? 
+            Number(price).toFixed(20).replace(/\.?0+$/, '') : 
+            price.toString());
         }
         setLoading(false);
       }
@@ -158,6 +162,18 @@ const TradeForm: React.FC = () => {
     }
   }, [entryPrice, stopLoss, quantity, quantityType, portfolioValue, calculateRisk, isRiskInputMode, isShort]);
   
+  // Helper function to format numbers to avoid scientific notation
+  const formatFullDecimal = (num: number): string => {
+    if (num === 0) return '0';
+    
+    // Convert to string and check if it uses scientific notation
+    const numStr = num.toString();
+    if (!numStr.includes('e')) return numStr;
+    
+    // Handle scientific notation
+    return Number(num).toFixed(20).replace(/\.?0+$/, '');
+  };
+  
   // Calculate position size or stop loss based on desired risk
   useEffect(() => {
     if (isRiskInputMode && riskTabValue === 0 && desiredRisk && portfolioValue) {
@@ -177,7 +193,13 @@ const TradeForm: React.FC = () => {
             isShort
           );
           
-          setQuantity(calculatedPosition.toFixed(quantityType === 'coins' ? 8 : 2));
+          // Format position size to avoid scientific notation for small values
+          if (quantityType === 'coins') {
+            setQuantity(formatFullDecimal(calculatedPosition));
+          } else {
+            setQuantity(calculatedPosition.toFixed(2));
+          }
+          
           setRisk(desiredRiskNum);
         }
       } else if (calculationTarget === 'stopLoss' && entryPrice && quantity) {
@@ -194,7 +216,8 @@ const TradeForm: React.FC = () => {
             isShort
           );
           
-          setStopLoss(calculatedStopLoss.toFixed(2));
+          // Format stop loss to avoid scientific notation
+          setStopLoss(formatFullDecimal(calculatedStopLoss));
           setRisk(desiredRiskNum);
         }
       }
@@ -230,7 +253,12 @@ const TradeForm: React.FC = () => {
           isShort
         );
         
-        setQuantity(calculatedPosition.toFixed(quantityType === 'coins' ? 8 : 2));
+        // Format position size to avoid scientific notation for small values
+        if (quantityType === 'coins') {
+          setQuantity(formatFullDecimal(calculatedPosition));
+        } else {
+          setQuantity(calculatedPosition.toFixed(2));
+        }
         
         // Calculate the risk percentage
         if (portfolioValue > 0) {
@@ -459,13 +487,20 @@ const TradeForm: React.FC = () => {
               <TextField
                 fullWidth
                 label="Entry Price"
-                type="number"
+                type="text"
                 value={entryPrice}
-                onChange={(e) => setEntryPrice(e.target.value)}
+                onChange={(e) => {
+                  // Ensure we're storing the full decimal representation
+                  const value = e.target.value;
+                  setEntryPrice(value);
+                }}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
                 required
+                inputProps={{
+                  step: "any" // Allows any decimal precision
+                }}
               />
             </Grid>
             
@@ -502,15 +537,22 @@ const TradeForm: React.FC = () => {
               <TextField
                 fullWidth
                 label="Stop Loss"
-                type="number"
+                type="text"
                 value={stopLoss}
-                onChange={(e) => setStopLoss(e.target.value)}
+                onChange={(e) => {
+                  // Ensure we're storing the full decimal representation
+                  const value = e.target.value;
+                  setStopLoss(value);
+                }}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
                 required
                 helperText={isShort ? 'For short positions, stop loss should be higher than entry price' : 'For long positions, stop loss should be lower than entry price'}
                 disabled={isRiskInputMode && calculationTarget === 'stopLoss' && riskTabValue === 0}
+                inputProps={{
+                  step: "any" // Allows any decimal precision
+                }}
               />
             </Grid>
             
@@ -579,7 +621,7 @@ const TradeForm: React.FC = () => {
                         if (!entryPrice || !stopLoss) return '';
                         const entryPriceNum = parseFloat(entryPrice);
                         const stopLossNum = parseFloat(stopLoss);
-                        if (isNaN(entryPriceNum) || isNaN(stopLossNum)) return '';
+                        if (isNaN(entryPriceNum) || isNaN(stopLossNum) || entryPriceNum === 0) return '';
                         const percentage = Math.abs((entryPriceNum - stopLossNum) / entryPriceNum * 100);
                         return percentage.toFixed(2);
                       })()}
@@ -587,11 +629,15 @@ const TradeForm: React.FC = () => {
                         const percentage = parseFloat(e.target.value) || 0;
                         if (entryPrice) {
                           const entryPriceNum = parseFloat(entryPrice);
-                          if (!isNaN(entryPriceNum)) {
+                          if (!isNaN(entryPriceNum) && entryPriceNum !== 0) {
                             const newStopLoss = isShort 
                               ? entryPriceNum * (1 + percentage / 100)
                               : entryPriceNum * (1 - percentage / 100);
-                            setStopLoss(newStopLoss.toFixed(2));
+                            
+                            // Format to display full decimal instead of scientific notation
+                            setStopLoss(newStopLoss.toString().includes('e') ? 
+                              Number(newStopLoss).toFixed(20).replace(/\.?0+$/, '') : 
+                              newStopLoss.toString());
                           }
                         }
                       }}
@@ -870,8 +916,18 @@ const TradeForm: React.FC = () => {
                       </Grid>
                       <Grid item xs={6}>
                         <Typography variant="body2">
-                          ${Math.abs(parseFloat(entryPrice) - parseFloat(stopLoss)).toFixed(2)} 
-                          ({((Math.abs(parseFloat(entryPrice) - parseFloat(stopLoss)) / parseFloat(entryPrice)) * 100).toFixed(2)}%)
+                          {(() => {
+                            const entryPriceNum = parseFloat(entryPrice);
+                            const stopLossNum = parseFloat(stopLoss);
+                            const priceDiff = Math.abs(entryPriceNum - stopLossNum);
+                            
+                            // Determine appropriate decimal places based on price
+                            const decimalPlaces = entryPriceNum < 0.0001 ? 12 : 
+                                                 entryPriceNum < 0.01 ? 8 : 
+                                                 entryPriceNum < 1 ? 6 : 2;
+                            
+                            return `$${priceDiff.toFixed(decimalPlaces)} (${((priceDiff / entryPriceNum) * 100).toFixed(2)}%)`;
+                          })()}
                         </Typography>
                       </Grid>
                       
@@ -883,10 +939,12 @@ const TradeForm: React.FC = () => {
                       <Grid item xs={6}>
                         <Typography variant="body2" fontWeight="bold">
                           ${(() => {
+                            const entryPriceNum = parseFloat(entryPrice);
+                            const stopLossNum = parseFloat(stopLoss);
                             const actualQuantity = quantityType === 'dollars' 
-                              ? parseFloat(quantity) / parseFloat(entryPrice) 
+                              ? parseFloat(quantity) / entryPriceNum 
                               : parseFloat(quantity);
-                            return (Math.abs(parseFloat(entryPrice) - parseFloat(stopLoss)) * actualQuantity).toFixed(2);
+                            return (Math.abs(entryPriceNum - stopLossNum) * actualQuantity).toFixed(2);
                           })()}
                         </Typography>
                       </Grid>
@@ -899,10 +957,12 @@ const TradeForm: React.FC = () => {
                       <Grid item xs={6}>
                         <Typography variant="body2">
                           ${(() => {
+                            const entryPriceNum = parseFloat(entryPrice);
+                            const stopLossNum = parseFloat(stopLoss);
                             const actualQuantity = quantityType === 'dollars' 
-                              ? parseFloat(quantity) / parseFloat(entryPrice) 
+                              ? parseFloat(quantity) / entryPriceNum 
                               : parseFloat(quantity);
-                            return (Math.abs(parseFloat(entryPrice) - parseFloat(stopLoss)) * actualQuantity).toFixed(2);
+                            return (Math.abs(entryPriceNum - stopLossNum) * actualQuantity).toFixed(2);
                           })()}
                         </Typography>
                       </Grid>

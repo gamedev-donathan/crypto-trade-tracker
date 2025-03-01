@@ -51,6 +51,7 @@ const TradeList: React.FC = () => {
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [newStopLoss, setNewStopLoss] = useState('');
   const [exitPrice, setExitPrice] = useState('');
+  const [exitPriceOption, setExitPriceOption] = useState<'custom' | 'entry' | 'stopLoss'>('custom');
   const [sortField, setSortField] = useState<keyof Trade>('entryDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
@@ -75,7 +76,7 @@ const TradeList: React.FC = () => {
   // Handle stop loss dialog
   const handleOpenStopLossDialog = (trade: Trade) => {
     setSelectedTrade(trade);
-    setNewStopLoss(trade.stopLoss.toString());
+    setNewStopLoss(formatFullDecimal(trade.stopLoss));
     setOpenStopLossDialog(true);
   };
   
@@ -95,6 +96,7 @@ const TradeList: React.FC = () => {
   const handleOpenCloseTradeDialog = (trade: Trade) => {
     setSelectedTrade(trade);
     setExitPrice(trade.entryPrice.toString());
+    setExitPriceOption('custom');
     setOpenCloseTradeDialog(true);
   };
   
@@ -107,6 +109,18 @@ const TradeList: React.FC = () => {
     if (selectedTrade && exitPrice) {
       closeTrade(selectedTrade.id, parseFloat(exitPrice));
       handleCloseTradeDialog();
+    }
+  };
+  
+  const handleExitPriceOptionChange = (option: 'custom' | 'entry' | 'stopLoss') => {
+    setExitPriceOption(option);
+    
+    if (selectedTrade) {
+      if (option === 'entry') {
+        setExitPrice(formatFullDecimal(selectedTrade.entryPrice));
+      } else if (option === 'stopLoss') {
+        setExitPrice(formatFullDecimal(selectedTrade.stopLoss));
+      }
     }
   };
   
@@ -427,6 +441,19 @@ const TradeList: React.FC = () => {
     }
   };
   
+  // Add a helper function to format numbers to avoid scientific notation
+  const formatFullDecimal = (num: number | undefined | null): string => {
+    if (num === undefined || num === null) return 'N/A';
+    if (num === 0) return '0';
+    
+    // Convert to string and check if it uses scientific notation
+    const numStr = num.toString();
+    if (!numStr.includes('e')) return numStr;
+    
+    // Handle scientific notation
+    return Number(num).toFixed(20).replace(/\.?0+$/, '');
+  };
+  
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -544,7 +571,7 @@ const TradeList: React.FC = () => {
                       ) : null}
                       {trade.cryptocurrency}
                     </TableCell>
-                    <TableCell>${trade.entryPrice.toFixed(2)}</TableCell>
+                    <TableCell>${formatFullDecimal(trade.entryPrice)}</TableCell>
                     <TableCell>
                       {formatQuantity(trade)}
                       {trade.quantityType === 'dollars' && (
@@ -553,7 +580,7 @@ const TradeList: React.FC = () => {
                         </Typography>
                       )}
                     </TableCell>
-                    <TableCell>${trade.stopLoss.toFixed(2)}</TableCell>
+                    <TableCell>${formatFullDecimal(trade.stopLoss)}</TableCell>
                     <TableCell>{formatDate(trade.entryDate)}</TableCell>
                     <TableCell>
                       <Tooltip title="Edit Stop Loss">
@@ -628,8 +655,8 @@ const TradeList: React.FC = () => {
                         ) : null}
                         {trade.cryptocurrency}
                       </TableCell>
-                      <TableCell>${trade.entryPrice.toFixed(2)}</TableCell>
-                      <TableCell>${trade.exitPrice?.toFixed(2)}</TableCell>
+                      <TableCell>${formatFullDecimal(trade.entryPrice)}</TableCell>
+                      <TableCell>${trade.exitPrice ? formatFullDecimal(trade.exitPrice) : 'N/A'}</TableCell>
                       <TableCell>
                         {formatQuantity(trade)}
                         {trade.quantityType === 'dollars' && (
@@ -689,12 +716,15 @@ const TradeList: React.FC = () => {
             autoFocus
             margin="dense"
             label="New Stop Loss"
-            type="number"
+            type="text"
             fullWidth
             value={newStopLoss}
             onChange={(e) => setNewStopLoss(e.target.value)}
             InputProps={{
               startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+            inputProps={{
+              step: "any" // Allows any decimal precision
             }}
           />
         </DialogContent>
@@ -708,16 +738,42 @@ const TradeList: React.FC = () => {
       <Dialog open={openCloseTradeDialog} onClose={handleCloseTradeDialog}>
         <DialogTitle>Close Trade</DialogTitle>
         <DialogContent>
+          <Box sx={{ mb: 2, mt: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Select Exit Price:
+            </Typography>
+            <ToggleButtonGroup
+              value={exitPriceOption}
+              exclusive
+              onChange={(e, newValue) => newValue && handleExitPriceOptionChange(newValue)}
+              aria-label="exit price option"
+              size="small"
+              sx={{ mb: 2 }}
+            >
+              <ToggleButton value="custom" aria-label="custom price">
+                Custom
+              </ToggleButton>
+              <ToggleButton value="entry" aria-label="entry price">
+                Entry Price
+              </ToggleButton>
+              <ToggleButton value="stopLoss" aria-label="stop loss">
+                Stop Loss
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
           <TextField
             autoFocus
             margin="dense"
             label="Exit Price"
-            type="number"
+            type="text"
             fullWidth
             value={exitPrice}
             onChange={(e) => setExitPrice(e.target.value)}
             InputProps={{
               startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+            inputProps={{
+              step: "any" // Allows any decimal precision
             }}
           />
         </DialogContent>
