@@ -60,9 +60,13 @@ const TradeList: React.FC = () => {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [newStopLoss, setNewStopLoss] = useState('');
+  const [stopLossFees, setStopLossFees] = useState('0.1'); // Default trading fee of 0.1%
+  const [stopLossFeesType, setStopLossFeesType] = useState<'percentage' | 'fixed'>('percentage'); // Default to percentage
   const [exitPrice, setExitPrice] = useState('');
   const [exitDate, setExitDate] = useState(new Date().toISOString().split('T')[0]);
   const [exitPriceOption, setExitPriceOption] = useState<'custom' | 'entry' | 'stopLoss'>('custom');
+  const [exitFees, setExitFees] = useState('0.1'); // Default trading fee of 0.1%
+  const [exitFeesType, setExitFeesType] = useState<'percentage' | 'fixed'>('percentage'); // Default to percentage
   const [sortField, setSortField] = useState<keyof Trade>('entryDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
@@ -71,7 +75,7 @@ const TradeList: React.FC = () => {
   const [importAnchorEl, setImportAnchorEl] = useState<null | HTMLElement>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info' | 'warning'>('success');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Add new state for partial close and trailing stop
@@ -79,6 +83,8 @@ const TradeList: React.FC = () => {
   const [openTrailingStopDialog, setOpenTrailingStopDialog] = useState(false);
   const [partialExitQuantity, setPartialExitQuantity] = useState('');
   const [partialExitNotes, setPartialExitNotes] = useState('');
+  const [partialExitFees, setPartialExitFees] = useState('0.1'); // Default trading fee of 0.1%
+  const [partialExitFeesType, setPartialExitFeesType] = useState<'percentage' | 'fixed'>('percentage'); // Default to percentage
   const [trailingAmount, setTrailingAmount] = useState('');
   const [trailingType, setTrailingType] = useState<'percentage' | 'fixed'>('percentage');
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
@@ -107,6 +113,8 @@ const TradeList: React.FC = () => {
   const handleOpenStopLossDialog = (trade: Trade) => {
     setSelectedTrade(trade);
     setNewStopLoss(formatFullDecimal(trade.stopLoss));
+    setStopLossFees(trade.fees ? trade.fees.toString() : '0.1');
+    setStopLossFeesType(trade.feesType || 'percentage');
     setOpenStopLossDialog(true);
   };
   
@@ -117,8 +125,21 @@ const TradeList: React.FC = () => {
   
   const handleUpdateStopLoss = () => {
     if (selectedTrade && newStopLoss) {
-      updateStopLoss(selectedTrade.id, parseFloat(newStopLoss));
-      handleCloseStopLossDialog();
+      const stopLossNum = parseFloat(newStopLoss);
+      const feesNum = parseFloat(stopLossFees);
+      
+      if (!isNaN(stopLossNum) && !isNaN(feesNum)) {
+        // Update the stop loss
+        updateStopLoss(selectedTrade.id, stopLossNum);
+        
+        // Update the fees
+        updateTrade(selectedTrade.id, {
+          fees: feesNum,
+          feesType: stopLossFeesType
+        });
+        
+        handleCloseStopLossDialog();
+      }
     }
   };
   
@@ -128,6 +149,8 @@ const TradeList: React.FC = () => {
     setExitPrice(trade.entryPrice.toString());
     setExitDate(new Date().toISOString().split('T')[0]);
     setExitPriceOption('custom');
+    setExitFees(trade.fees ? trade.fees.toString() : '0.1');
+    setExitFeesType(trade.feesType || 'percentage');
     setOpenCloseTradeDialog(true);
   };
   
@@ -138,8 +161,29 @@ const TradeList: React.FC = () => {
   
   const handleCloseTrade = () => {
     if (selectedTrade && exitPrice) {
-      closeTrade(selectedTrade.id, parseFloat(exitPrice), exitDate);
-      handleCloseTradeDialog();
+      const exitPriceNum = parseFloat(exitPrice);
+      const exitFeesNum = parseFloat(exitFees);
+      
+      if (!isNaN(exitPriceNum) && !isNaN(exitFeesNum)) {
+        // Update the trade with exit price, date, and fees
+        updateTrade(selectedTrade.id, {
+          exitPrice: exitPriceNum,
+          exitDate: new Date(`${exitDate}T00:00:00`).toISOString(),
+          fees: exitFeesNum,
+          feesType: exitFeesType
+        });
+        
+        // Close the trade
+        closeTrade(selectedTrade.id, exitPriceNum, exitDate);
+        
+        // Reset and close dialog
+        setExitPrice('');
+        setExitDate(new Date().toISOString().split('T')[0]);
+        setExitFees('0.1');
+        setExitFeesType('percentage');
+        setOpenCloseTradeDialog(false);
+        setSelectedTrade(null);
+      }
     }
   };
   
@@ -256,6 +300,7 @@ const TradeList: React.FC = () => {
         'id',
         'cryptocurrency',
         'coinId',
+        'name',
         'entryPrice',
         'exitPrice',
         'quantity',
@@ -264,7 +309,15 @@ const TradeList: React.FC = () => {
         'entryDate',
         'exitDate',
         'notes',
-        'isActive'
+        'lessonsLearned',
+        'isActive',
+        'fees',
+        'feesType',
+        'isTrailingStop',
+        'trailingAmount',
+        'trailingType',
+        'highestPrice',
+        'lowestPrice'
       ].join(',');
       
       // Convert trades to CSV rows
@@ -273,15 +326,24 @@ const TradeList: React.FC = () => {
           trade.id,
           `"${trade.cryptocurrency}"`, // Wrap in quotes to handle commas in names
           trade.coinId,
-          trade.entryPrice,
-          trade.exitPrice || '',
-          trade.quantity,
+          `"${trade.name || ''}"`,
+          formatFullDecimal(trade.entryPrice),
+          trade.exitPrice ? formatFullDecimal(trade.exitPrice) : '',
+          formatFullDecimal(trade.quantity),
           trade.quantityType,
-          trade.stopLoss,
+          formatFullDecimal(trade.stopLoss),
           trade.entryDate,
           trade.exitDate || '',
           `"${trade.notes || ''}"`, // Wrap in quotes to handle commas in notes
-          trade.isActive
+          `"${trade.lessonsLearned || ''}"`,
+          trade.isActive,
+          trade.fees ? formatFullDecimal(trade.fees) : '0.1',
+          trade.feesType || 'percentage',
+          trade.isTrailingStop || false,
+          trade.trailingAmount ? formatFullDecimal(trade.trailingAmount) : '',
+          trade.trailingType || 'percentage',
+          trade.highestPrice ? formatFullDecimal(trade.highestPrice) : '',
+          trade.lowestPrice ? formatFullDecimal(trade.lowestPrice) : ''
         ].join(',');
       });
       
@@ -304,6 +366,77 @@ const TradeList: React.FC = () => {
     } catch (error) {
       console.error('Error exporting to CSV:', error);
       setSnackbarMessage('Error exporting trades to CSV');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
+    
+    handleExportClose();
+  };
+  
+  // Export partial exits to CSV
+  const handleExportPartialExitsCSV = () => {
+    try {
+      // Define CSV headers for partial exits
+      const headers = [
+        'tradeId',
+        'cryptocurrency',
+        'partialExitId',
+        'exitDate',
+        'exitPrice',
+        'exitQuantity',
+        'notes',
+        'fees',
+        'feesType'
+      ].join(',');
+      
+      // Collect all partial exits from all trades
+      const partialExitRows: string[] = [];
+      
+      trades.forEach(trade => {
+        if (trade.partialExits && trade.partialExits.length > 0) {
+          trade.partialExits.forEach(exit => {
+            partialExitRows.push([
+              trade.id,
+              `"${trade.cryptocurrency}"`,
+              exit.id,
+              exit.exitDate,
+              formatFullDecimal(exit.exitPrice),
+              formatFullDecimal(exit.exitQuantity),
+              `"${exit.notes || ''}"`,
+              exit.fees ? formatFullDecimal(exit.fees) : '0.1',
+              exit.feesType || 'percentage'
+            ].join(','));
+          });
+        }
+      });
+      
+      if (partialExitRows.length === 0) {
+        setSnackbarMessage('No partial exits to export');
+        setSnackbarSeverity('info');
+        setSnackbarOpen(true);
+        handleExportClose();
+        return;
+      }
+      
+      // Combine headers and rows
+      const csvContent = [headers, ...partialExitRows].join('\n');
+      
+      // Create and download the file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `crypto-partial-exits-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setSnackbarMessage('Partial exits exported successfully to CSV');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (error) {
+      console.error('Error exporting partial exits to CSV:', error);
+      setSnackbarMessage('Error exporting partial exits to CSV');
       setSnackbarSeverity('error');
       setSnackbarOpen(true);
     }
@@ -356,14 +489,20 @@ const TradeList: React.FC = () => {
             const trade: any = {};
             
             headers.forEach((header, index) => {
-              if (header === 'entryPrice' || header === 'exitPrice' || header === 'quantity' || header === 'stopLoss') {
+              if (header === 'entryPrice' || header === 'exitPrice' || header === 'quantity' || header === 'stopLoss' || 
+                  header === 'fees' || header === 'trailingAmount' || header === 'highestPrice' || header === 'lowestPrice') {
                 trade[header] = values[index] ? parseFloat(values[index]) : null;
-              } else if (header === 'isActive') {
+              } else if (header === 'isActive' || header === 'isTrailingStop') {
                 trade[header] = values[index] === 'true';
               } else {
                 trade[header] = values[index];
               }
             });
+            
+            // Ensure required fields have default values if missing
+            if (!trade.feesType) trade.feesType = 'percentage';
+            if (!trade.fees && trade.fees !== 0) trade.fees = 0.1;
+            if (!trade.trailingType) trade.trailingType = 'percentage';
             
             return trade as Trade;
           });
@@ -475,7 +614,26 @@ const TradeList: React.FC = () => {
       ? trade.quantity / trade.entryPrice 
       : trade.quantity;
     
-    const profitLoss = (trade.exitPrice - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+    // Calculate raw profit/loss
+    const rawProfitLoss = (trade.exitPrice - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+    
+    // Calculate fees
+    let feeAmount = 0;
+    if (trade.fees) {
+      if (trade.feesType === 'percentage') {
+        // For percentage fees, calculate based on position size
+        const positionSizeDollars = trade.quantityType === 'dollars'
+          ? trade.quantity
+          : trade.quantity * trade.entryPrice;
+        feeAmount = (positionSizeDollars * trade.fees) / 100;
+      } else {
+        // For fixed fees, use the fixed amount
+        feeAmount = trade.fees;
+      }
+    }
+    
+    // Subtract fees from profit
+    const profitLoss = rawProfitLoss - feeAmount;
     const profitLossPercentage = ((trade.exitPrice - trade.entryPrice) / trade.entryPrice) * 100 * (isShort ? -1 : 1);
     
     return {
@@ -487,10 +645,40 @@ const TradeList: React.FC = () => {
   // Format quantity with type
   const formatQuantity = (trade: Trade) => {
     if (trade.quantityType === 'coins') {
-      return trade.quantity.toString();
+      return formatFullDecimal(trade.quantity);
     } else {
-      return `$${trade.quantity.toFixed(2)}`;
+      return `$${formatFullDecimal(trade.quantity)}`;
     }
+  };
+  
+  // Calculate profit/loss for partial exits
+  const calculatePartialExitProfitLoss = (trade: Trade, exit: PartialExit) => {
+    const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+    
+    // Calculate raw profit/loss
+    const rawProfitLoss = (exit.exitPrice - trade.entryPrice) * exit.exitQuantity * (isShort ? -1 : 1);
+    
+    // Calculate fees
+    let feeAmount = 0;
+    if (exit.fees) {
+      if (exit.feesType === 'percentage') {
+        // For percentage fees, calculate based on position size
+        const positionSizeDollars = exit.exitQuantity * trade.entryPrice;
+        feeAmount = (positionSizeDollars * exit.fees) / 100;
+      } else {
+        // For fixed fees, use the fixed amount
+        feeAmount = exit.fees;
+      }
+    }
+    
+    // Subtract fees from profit
+    const profitLoss = rawProfitLoss - feeAmount;
+    const profitLossPercentage = ((exit.exitPrice - trade.entryPrice) / trade.entryPrice) * 100 * (isShort ? -1 : 1);
+    
+    return {
+      value: profitLoss,
+      percentage: profitLossPercentage
+    };
   };
   
   // Add a helper function to format numbers to avoid scientific notation
@@ -509,9 +697,11 @@ const TradeList: React.FC = () => {
   const handleOpenPartialCloseDialog = (trade: Trade) => {
     setSelectedTrade(trade);
     setExitPrice(trade.entryPrice.toString());
-    setPartialExitQuantity((trade.remainingQuantity || trade.quantity).toString());
+    setExitDate(new Date().toISOString().split('T')[0]);
+    setPartialExitQuantity('');
     setPartialExitNotes('');
-    setExitPriceOption('custom');
+    setPartialExitFees(trade.fees ? trade.fees.toString() : '0.1');
+    setPartialExitFeesType(trade.feesType || 'percentage');
     setOpenPartialCloseDialog(true);
   };
 
@@ -551,13 +741,46 @@ const TradeList: React.FC = () => {
   
   const handlePartialCloseTrade = () => {
     if (selectedTrade && exitPrice && partialExitQuantity) {
-      closePartialTrade(
-        selectedTrade.id, 
-        parseFloat(exitPrice), 
-        parseFloat(partialExitQuantity),
-        partialExitNotes || undefined
-      );
-      handleClosePartialCloseDialog();
+      const exitPriceNum = parseFloat(exitPrice);
+      const partialQuantityNum = parseFloat(partialExitQuantity);
+      const partialFeesNum = parseFloat(partialExitFees);
+      
+      if (!isNaN(exitPriceNum) && !isNaN(partialQuantityNum) && !isNaN(partialFeesNum)) {
+        // Close part of the trade
+        closePartialTrade(
+          selectedTrade.id, 
+          exitPriceNum, 
+          partialQuantityNum, 
+          partialExitNotes
+        );
+        
+        // Update the trade with fees for this partial exit
+        const partialExits = selectedTrade.partialExits || [];
+        const lastPartialExit = partialExits[partialExits.length - 1];
+        
+        if (lastPartialExit) {
+          // Update the last partial exit with fees
+          updateTrade(selectedTrade.id, {
+            partialExits: [
+              ...partialExits.slice(0, -1),
+              {
+                ...lastPartialExit,
+                fees: partialFeesNum,
+                feesType: partialExitFeesType
+              }
+            ]
+          });
+        }
+        
+        // Reset and close dialog
+        setExitPrice('');
+        setPartialExitQuantity('');
+        setPartialExitNotes('');
+        setPartialExitFees('0.1');
+        setPartialExitFeesType('percentage');
+        setOpenPartialCloseDialog(false);
+        setSelectedTrade(null);
+      }
     }
   };
   
@@ -622,7 +845,9 @@ const TradeList: React.FC = () => {
       entryDate: formattedEntryDate,
       exitDate: formattedExitDate || '',
       notes: trade.notes || '',
-      lessonsLearned: trade.lessonsLearned || ''
+      lessonsLearned: trade.lessonsLearned || '',
+      fees: trade.fees || 0.1,
+      feesType: trade.feesType || 'percentage'
     });
     setOpenEditTradeDialog(true);
   };
@@ -717,6 +942,7 @@ const TradeList: React.FC = () => {
           >
             <MenuItem onClick={handleExportJSON}>Export as JSON</MenuItem>
             <MenuItem onClick={handleExportCSV}>Export as CSV</MenuItem>
+            <MenuItem onClick={handleExportPartialExitsCSV}>Export Partial Exits as CSV</MenuItem>
           </Menu>
           
           {/* Import Menu */}
@@ -968,14 +1194,34 @@ const TradeList: React.FC = () => {
                               <Box sx={{ mb: 2 }}>
                                 <Typography variant="subtitle2">Partial Exits:</Typography>
                                 <List dense>
-                                  {trade.partialExits.map((exit) => (
-                                    <ListItem key={exit.id}>
-                                      <ListItemText
-                                        primary={`${new Date(exit.exitDate).toLocaleDateString()} - ${formatFullDecimal(exit.exitQuantity)} ${trade.quantityType === 'dollars' ? '$' : 'coins'} @ $${formatFullDecimal(exit.exitPrice)}`}
-                                        secondary={exit.notes}
-                                      />
-                                    </ListItem>
-                                  ))}
+                                  {trade.partialExits.map((exit) => {
+                                    const profitLoss = calculatePartialExitProfitLoss(trade, exit);
+                                    const isProfit = profitLoss && profitLoss.value > 0;
+                                    
+                                    return (
+                                      <ListItem key={exit.id}>
+                                        <ListItemText
+                                          primary={
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                              <span>{`${new Date(exit.exitDate).toLocaleDateString()} - ${formatFullDecimal(exit.exitQuantity)} ${trade.quantityType === 'dollars' ? '$' : 'coins'} @ $${formatFullDecimal(exit.exitPrice)}`}</span>
+                                              {profitLoss && (
+                                                <Typography 
+                                                  component="span" 
+                                                  sx={{ 
+                                                    color: isProfit ? 'success.main' : 'error.main',
+                                                    fontWeight: 'bold'
+                                                  }}
+                                                >
+                                                  {isProfit ? '+' : ''}{formatFullDecimal(profitLoss.value)}$ ({profitLoss.percentage.toFixed(2)}%)
+                                                </Typography>
+                                              )}
+                                            </Box>
+                                          }
+                                          secondary={exit.notes}
+                                        />
+                                      </ListItem>
+                                    );
+                                  })}
                                 </List>
                               </Box>
                             )}
@@ -994,15 +1240,34 @@ const TradeList: React.FC = () => {
                               <Typography variant="subtitle2">Risk Analysis:</Typography>
                               <Typography variant="body2">
                                 {(() => {
-                                  const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-                                  const priceDiff = Math.abs(trade.entryPrice - trade.stopLoss);
-                                  const quantity = trade.remainingQuantity || trade.quantity;
-                                  const actualQuantity = trade.quantityType === 'dollars' 
-                                    ? quantity / trade.entryPrice 
-                                    : quantity;
-                                  const dollarRisk = priceDiff * actualQuantity;
-                                  
-                                  return `Risk: $${dollarRisk.toFixed(2)} | Stop Distance: ${((priceDiff / trade.entryPrice) * 100).toFixed(2)}%`;
+                                  try {
+                                    // Check if any required values are undefined, null, or NaN
+                                    if (trade.entryPrice === undefined || trade.entryPrice === null || 
+                                        trade.stopLoss === undefined || trade.stopLoss === null || 
+                                        trade.quantity === undefined || trade.quantity === null) {
+                                      return 'Risk: N/A - Missing required values';
+                                    }
+                                    
+                                    if (isNaN(trade.entryPrice) || isNaN(trade.stopLoss) || isNaN(trade.quantity) || 
+                                        trade.entryPrice === 0) { // Avoid division by zero
+                                      return 'Risk: N/A - Invalid values';
+                                    }
+                                    
+                                    const priceDiff = Math.abs(trade.entryPrice - trade.stopLoss);
+                                    
+                                    if (trade.quantityType === 'dollars') {
+                                      // For dollar-based positions, risk is a percentage of the position
+                                      const stopLossPercentage = priceDiff / trade.entryPrice;
+                                      const dollarRisk = trade.quantity * stopLossPercentage;
+                                      return `Risk: $${formatFullDecimal(dollarRisk)} (${formatFullDecimal(stopLossPercentage * 100)}% of position)`;
+                                    } else {
+                                      // For coin-based positions, risk is price difference * quantity
+                                      return `Risk: $${formatFullDecimal(priceDiff * trade.quantity)} (${formatFullDecimal(priceDiff)} per coin)`;
+                                    }
+                                  } catch (error) {
+                                    console.error('Error calculating risk:', error, 'Trade:', trade);
+                                    return 'Risk: N/A - Error calculating risk';
+                                  }
                                 })()}
                               </Typography>
                             </Box>
@@ -1066,11 +1331,18 @@ const TradeList: React.FC = () => {
                       <TableCell>{trade.name || '-'}</TableCell>
                       <TableCell>${formatFullDecimal(trade.entryPrice)}</TableCell>
                       <TableCell>${formatFullDecimal(trade.exitPrice!)}</TableCell>
-                      <TableCell>{formatQuantity(trade)}</TableCell>
+                      <TableCell>
+                        {formatQuantity(trade)}
+                        {trade.fees !== undefined && (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Fees: {trade.feesType === 'percentage' ? `${trade.fees}%` : `$${trade.fees}`}
+                          </Typography>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Typography color={isProfit ? 'success.main' : 'error.main'}>
-                          {isProfit ? '+' : ''}{profitLossValue.toFixed(2)} USD
-                          {profitLossResult && ` (${profitLossResult.percentage.toFixed(2)}%)`}
+                          {isProfit ? '+' : ''}{formatFullDecimal(profitLossValue)} USD
+                          {profitLossResult && ` (${formatFullDecimal(profitLossResult.percentage)}%)`}
                         </Typography>
                       </TableCell>
                       <TableCell>
@@ -1129,97 +1401,161 @@ const TradeList: React.FC = () => {
               Stop Loss: ${selectedTrade?.stopLoss}
             </Typography>
             <Typography variant="body2" gutterBottom>
-              Risk (1R): ${selectedTrade ? Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss).toFixed(2) : '0.00'} per unit
-            </Typography>
-            
-            <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
-              Select Exit Price:
-            </Typography>
-            {/* Close Trade Dialog preset buttons */}
-            <ButtonGroup size="small" sx={{ mb: 2 }}>
-              <Button 
-                onClick={() => handleExitPriceOptionChange('entry')}
-                variant="contained"
-                color="primary"
-              >
-                Entry
-              </Button>
-              <Button 
-                onClick={() => handleExitPriceOptionChange('stopLoss')}
-                variant="contained"
-                color="primary"
-              >
-                Stop Loss
-              </Button>
-              <Button 
-                onClick={() => handleCloseTradeRMultipleExit(1)}
-                variant="contained"
-                color="primary"
-              >
-                1R
-              </Button>
-              <Button 
-                onClick={() => handleCloseTradeRMultipleExit(2)}
-                variant="contained"
-                color="primary"
-              >
-                2R
-              </Button>
-              <Button 
-                onClick={() => handleCloseTradeRMultipleExit(3)}
-                variant="contained"
-                color="primary"
-              >
-                3R
-              </Button>
-            </ButtonGroup>
-            
-            {selectedTrade && (
-              <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {[1, 2, 3].map(r => {
-                  const isShort = selectedTrade.cryptocurrency.toLowerCase().includes('short');
-                  const priceDiff = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
-                  const rPrice = isShort 
-                    ? selectedTrade.entryPrice - (priceDiff * r)
-                    : selectedTrade.entryPrice + (priceDiff * r);
+              {selectedTrade && (() => {
+                try {
+                  // Check if any required values are undefined, null, or NaN
+                  if (selectedTrade.entryPrice === undefined || selectedTrade.entryPrice === null || 
+                      selectedTrade.stopLoss === undefined || selectedTrade.stopLoss === null || 
+                      selectedTrade.quantity === undefined || selectedTrade.quantity === null) {
+                    return 'Risk: N/A - Missing required values';
+                  }
                   
-                  return (
-                    <Chip 
-                      key={r}
-                      label={`${r}R = $${formatFullDecimal(rPrice)}`}
-                      size="small"
-                      sx={{ 
-                        bgcolor: r === 1 ? '#2196f3' : r === 2 ? '#9c27b0' : '#4caf50', 
-                        color: 'white' 
-                      }}
-                    />
-                  );
-                })}
-              </Box>
-            )}
+                  if (isNaN(selectedTrade.entryPrice) || isNaN(selectedTrade.stopLoss) || isNaN(selectedTrade.quantity) || 
+                      selectedTrade.entryPrice === 0) { // Avoid division by zero
+                    return 'Risk: N/A - Invalid values';
+                  }
+                  
+                  const priceDiff = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+                  
+                  if (selectedTrade.quantityType === 'dollars') {
+                    // For dollar-based positions, risk is a percentage of the position
+                    const stopLossPercentage = priceDiff / selectedTrade.entryPrice;
+                    const dollarRisk = selectedTrade.quantity * stopLossPercentage;
+                    return `Risk: $${formatFullDecimal(dollarRisk)} (${formatFullDecimal(stopLossPercentage * 100)}% of position)`;
+                  } else {
+                    // For coin-based positions, risk is price difference * quantity
+                    return `Risk: $${formatFullDecimal(priceDiff * selectedTrade.quantity)} (${formatFullDecimal(priceDiff)} per coin)`;
+                  }
+                } catch (error) {
+                  console.error('Error calculating risk:', error, 'Trade:', selectedTrade);
+                  return 'Risk: N/A - Error calculating risk';
+                }
+              })()}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Available Quantity: {selectedTrade ? (selectedTrade.remainingQuantity !== undefined ? selectedTrade.remainingQuantity : selectedTrade.quantity) : ''} {selectedTrade?.quantityType === 'dollars' ? '$' : 'coins'}
+            </Typography>
+            
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Select Exit Price:
+              </Typography>
+              {/* Close Trade Dialog preset buttons */}
+              <ButtonGroup size="small" sx={{ mb: 2 }}>
+                <Button 
+                  onClick={() => handleExitPriceOptionChange('entry')}
+                  variant="contained"
+                  color="primary"
+                >
+                  Entry
+                </Button>
+                <Button 
+                  onClick={() => handleExitPriceOptionChange('stopLoss')}
+                  variant="contained"
+                  color="primary"
+                >
+                  Stop Loss
+                </Button>
+                <Button 
+                  onClick={() => handleCloseTradeRMultipleExit(1)}
+                  variant="contained"
+                  color="primary"
+                >
+                  1R
+                </Button>
+                <Button 
+                  onClick={() => handleCloseTradeRMultipleExit(2)}
+                  variant="contained"
+                  color="primary"
+                >
+                  2R
+                </Button>
+                <Button 
+                  onClick={() => handleCloseTradeRMultipleExit(3)}
+                  variant="contained"
+                  color="primary"
+                >
+                  3R
+                </Button>
+              </ButtonGroup>
+              
+              {selectedTrade && (
+                <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {[1, 2, 3].map(r => {
+                    const isShort = selectedTrade.cryptocurrency.toLowerCase().includes('short');
+                    const priceDiff = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+                    const rPrice = isShort 
+                      ? selectedTrade.entryPrice - (priceDiff * r)
+                      : selectedTrade.entryPrice + (priceDiff * r);
+                    
+                    return (
+                      <Chip 
+                        key={r}
+                        label={`${r}R = $${formatFullDecimal(rPrice)}`}
+                        size="small"
+                        sx={{ 
+                          bgcolor: r === 1 ? '#2196f3' : r === 2 ? '#9c27b0' : '#4caf50', 
+                          color: 'white' 
+                        }}
+                      />
+                    );
+                  })}
+                </Box>
+              )}
+            </Box>
           </Box>
           <TextField
-            autoFocus
-            margin="dense"
-            id="exitPrice"
+            fullWidth
             label="Exit Price"
             type="number"
-            fullWidth
             value={exitPrice}
             onChange={(e) => setExitPrice(e.target.value)}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+            margin="normal"
+            required
           />
           <TextField
-            margin="dense"
-            id="exitDate"
+            fullWidth
             label="Exit Date"
             type="date"
-            fullWidth
             value={exitDate}
             onChange={(e) => setExitDate(e.target.value)}
             InputLabelProps={{
               shrink: true,
             }}
+            margin="normal"
+            required
           />
+          <TextField
+            fullWidth
+            label="Trading Fees"
+            type="number"
+            value={exitFees}
+            onChange={(e) => setExitFees(e.target.value)}
+            InputProps={{
+              endAdornment: <InputAdornment position="end">{exitFeesType === 'percentage' ? '%' : '$'}</InputAdornment>,
+            }}
+            margin="normal"
+            helperText="Trading fees as a percentage or fixed amount"
+          />
+          
+          <ToggleButtonGroup
+            value={exitFeesType}
+            exclusive
+            onChange={(e, value) => value && setExitFeesType(value)}
+            aria-label="fees type"
+            size="small"
+            sx={{ mt: 1, mb: 2 }}
+          >
+            <ToggleButton value="percentage" aria-label="percentage">
+              Percentage
+            </ToggleButton>
+            <ToggleButton value="fixed" aria-label="fixed amount">
+              Fixed $
+            </ToggleButton>
+          </ToggleButtonGroup>
         </DialogContent>
         <DialogActions>
           <Button 
@@ -1280,7 +1616,36 @@ const TradeList: React.FC = () => {
               Stop Loss: ${selectedTrade?.stopLoss}
             </Typography>
             <Typography variant="body2" gutterBottom>
-              Risk (1R): ${selectedTrade ? Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss).toFixed(2) : '0.00'} per unit
+              {selectedTrade && (() => {
+                try {
+                  // Check if any required values are undefined, null, or NaN
+                  if (selectedTrade.entryPrice === undefined || selectedTrade.entryPrice === null || 
+                      selectedTrade.stopLoss === undefined || selectedTrade.stopLoss === null || 
+                      selectedTrade.quantity === undefined || selectedTrade.quantity === null) {
+                    return 'Risk: N/A - Missing required values';
+                  }
+                  
+                  if (isNaN(selectedTrade.entryPrice) || isNaN(selectedTrade.stopLoss) || isNaN(selectedTrade.quantity) || 
+                      selectedTrade.entryPrice === 0) { // Avoid division by zero
+                    return 'Risk: N/A - Invalid values';
+                  }
+                  
+                  const priceDiff = Math.abs(selectedTrade.entryPrice - selectedTrade.stopLoss);
+                  
+                  if (selectedTrade.quantityType === 'dollars') {
+                    // For dollar-based positions, risk is a percentage of the position
+                    const stopLossPercentage = priceDiff / selectedTrade.entryPrice;
+                    const dollarRisk = selectedTrade.quantity * stopLossPercentage;
+                    return `Risk: $${formatFullDecimal(dollarRisk)} (${formatFullDecimal(stopLossPercentage * 100)}% of position)`;
+                  } else {
+                    // For coin-based positions, risk is price difference * quantity
+                    return `Risk: $${formatFullDecimal(priceDiff * selectedTrade.quantity)} (${formatFullDecimal(priceDiff)} per coin)`;
+                  }
+                } catch (error) {
+                  console.error('Error calculating risk:', error, 'Trade:', selectedTrade);
+                  return 'Risk: N/A - Error calculating risk';
+                }
+              })()}
             </Typography>
             <Typography variant="body2" gutterBottom>
               Available Quantity: {selectedTrade ? (selectedTrade.remainingQuantity !== undefined ? selectedTrade.remainingQuantity : selectedTrade.quantity) : ''} {selectedTrade?.quantityType === 'dollars' ? '$' : 'coins'}
@@ -1416,6 +1781,35 @@ const TradeList: React.FC = () => {
               }}
               sx={{ mb: 2 }}
             />
+
+            <TextField
+              margin="dense"
+              label="Trading Fees"
+              type="number"
+              fullWidth
+              value={partialExitFees}
+              onChange={(e) => setPartialExitFees(e.target.value)}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">{partialExitFeesType === 'percentage' ? '%' : '$'}</InputAdornment>,
+              }}
+              helperText="Trading fees as a percentage or fixed amount"
+            />
+            
+            <ToggleButtonGroup
+              value={partialExitFeesType}
+              exclusive
+              onChange={(e, value) => value && setPartialExitFeesType(value)}
+              aria-label="fees type"
+              size="small"
+              sx={{ mt: 1, mb: 2 }}
+            >
+              <ToggleButton value="percentage" aria-label="percentage">
+                Percentage
+              </ToggleButton>
+              <ToggleButton value="fixed" aria-label="fixed amount">
+                Fixed $
+              </ToggleButton>
+            </ToggleButtonGroup>
             
             <TextField
               margin="dense"
@@ -1426,6 +1820,7 @@ const TradeList: React.FC = () => {
               value={partialExitNotes}
               onChange={(e) => setPartialExitNotes(e.target.value)}
             />
+            
           </Box>
         </DialogContent>
         <DialogActions>
@@ -1587,6 +1982,34 @@ const TradeList: React.FC = () => {
           />
           <TextField
             margin="dense"
+            label="Trading Fees"
+            type="number"
+            fullWidth
+            value={editedTrade.fees}
+            onChange={(e) => handleEditTradeChange('fees', parseFloat(e.target.value))}
+            InputProps={{
+              endAdornment: <InputAdornment position="end">{editedTrade.feesType === 'percentage' ? '%' : '$'}</InputAdornment>,
+            }}
+            helperText="Trading fees as a percentage or fixed amount"
+          />
+          
+          <ToggleButtonGroup
+            value={editedTrade.feesType}
+            exclusive
+            onChange={(e, value) => value && handleEditTradeChange('feesType', value)}
+            aria-label="fees type"
+            size="small"
+            sx={{ mt: 1, mb: 2 }}
+          >
+            <ToggleButton value="percentage" aria-label="percentage">
+              Percentage
+            </ToggleButton>
+            <ToggleButton value="fixed" aria-label="fixed amount">
+              Fixed $
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <TextField
+            margin="dense"
             label="Entry Date"
             type="datetime-local"
             fullWidth
@@ -1621,6 +2044,7 @@ const TradeList: React.FC = () => {
             multiline
             rows={4}
           />
+          
         </DialogContent>
         <DialogActions>
           <Button 
@@ -1636,6 +2060,82 @@ const TradeList: React.FC = () => {
             sx={{ px: 3 }}
           >
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Stop Loss Dialog */}
+      <Dialog open={openStopLossDialog} onClose={handleCloseStopLossDialog}>
+        <DialogTitle>Update Stop Loss</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              {selectedTrade?.cryptocurrency}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Entry Price: ${selectedTrade?.entryPrice}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Current Stop Loss: ${selectedTrade?.stopLoss}
+            </Typography>
+            
+            <TextField
+              fullWidth
+              label="New Stop Loss"
+              type="number"
+              value={newStopLoss}
+              onChange={(e) => setNewStopLoss(e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
+              margin="normal"
+              required
+            />
+            
+            <TextField
+              fullWidth
+              label="Trading Fees"
+              type="number"
+              value={stopLossFees}
+              onChange={(e) => setStopLossFees(e.target.value)}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">{stopLossFeesType === 'percentage' ? '%' : '$'}</InputAdornment>,
+              }}
+              margin="normal"
+              helperText="Trading fees as a percentage or fixed amount"
+            />
+            
+            <ToggleButtonGroup
+              value={stopLossFeesType}
+              exclusive
+              onChange={(e, value) => value && setStopLossFeesType(value)}
+              aria-label="fees type"
+              size="small"
+              sx={{ mt: 1 }}
+            >
+              <ToggleButton value="percentage" aria-label="percentage">
+                Percentage
+              </ToggleButton>
+              <ToggleButton value="fixed" aria-label="fixed amount">
+                Fixed $
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={handleCloseStopLossDialog}
+            sx={{ color: 'text.secondary' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleUpdateStopLoss} 
+            variant="contained" 
+            color="primary"
+            sx={{ px: 3 }}
+          >
+            Update
           </Button>
         </DialogActions>
       </Dialog>

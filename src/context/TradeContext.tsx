@@ -41,9 +41,9 @@ interface TradeContextType {
   setQuarterStartBalance: React.Dispatch<React.SetStateAction<number>>;
   allTimeStartBalance: number;
   setAllTimeStartBalance: React.Dispatch<React.SetStateAction<number>>;
-  calculatePositionFromRisk: (entryPrice: number, stopLoss: number, riskPercentage: number, portfolioValue: number, quantityType: 'coins' | 'dollars', isShort?: boolean) => number;
-  calculateStopLossFromRisk: (entryPrice: number, quantity: number, riskPercentage: number, portfolioValue: number, quantityType: 'coins' | 'dollars', isShort?: boolean) => number;
-  calculatePositionFromDollarRisk: (entryPrice: number, stopLoss: number, dollarRisk: number, quantityType: 'coins' | 'dollars', isShort?: boolean) => number;
+  calculatePositionFromRisk: (entryPrice: number, stopLoss: number, riskPercentage: number, portfolioValue: number, quantityType: 'coins' | 'dollars', isShort?: boolean, fees?: number, feesType?: 'percentage' | 'fixed') => number;
+  calculateStopLossFromRisk: (entryPrice: number, quantity: number, riskPercentage: number, portfolioValue: number, quantityType: 'coins' | 'dollars', isShort?: boolean, fees?: number, feesType?: 'percentage' | 'fixed') => number;
+  calculatePositionFromDollarRisk: (entryPrice: number, stopLoss: number, dollarRisk: number, quantityType: 'coins' | 'dollars', isShort?: boolean, fees?: number, feesType?: 'percentage' | 'fixed') => number;
   portfolioSettings: PortfolioSettings;
   setPortfolioSettings: (settings: PortfolioSettings) => void;
   getPortfolioPerformance: (timeRange: TimePeriod) => PortfolioPerformance[];
@@ -137,8 +137,23 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       // Calculate profit/loss
       const profitLoss = (trade.exitPrice! - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
       
-      // Add profit/loss to current value
-      currentValue += profitLoss;
+      // Calculate and subtract fees
+      let feeAmount = 0;
+      if (trade.fees) {
+        if (trade.feesType === 'percentage') {
+          // For percentage fees, calculate based on position size
+          const positionSizeDollars = trade.quantityType === 'dollars'
+            ? trade.quantity
+            : trade.quantity * trade.entryPrice;
+          feeAmount = (positionSizeDollars * trade.fees) / 100;
+        } else {
+          // For fixed fees, use the fixed amount
+          feeAmount = trade.fees;
+        }
+      }
+      
+      // Add profit/loss to current value (minus fees)
+      currentValue += profitLoss - feeAmount;
     });
     
     // Process partial exits
@@ -155,8 +170,23 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
           // Calculate profit/loss for this partial exit
           const profitLoss = (exit.exitPrice - trade.entryPrice) * actualExitQuantity * (isShort ? -1 : 1);
           
-          // Add profit/loss to current value
-          currentValue += profitLoss;
+          // Calculate and subtract fees for this partial exit
+          let feeAmount = 0;
+          if (exit.fees) {
+            if (exit.feesType === 'percentage') {
+              // For percentage fees, calculate based on exit position size
+              const exitPositionSizeDollars = trade.quantityType === 'dollars'
+                ? exit.exitQuantity
+                : exit.exitQuantity * exit.exitPrice;
+              feeAmount = (exitPositionSizeDollars * exit.fees) / 100;
+            } else {
+              // For fixed fees, use the fixed amount
+              feeAmount = exit.fees;
+            }
+          }
+          
+          // Add profit/loss to current value (minus fees)
+          currentValue += profitLoss - feeAmount;
         });
       }
     });
@@ -438,9 +468,22 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     riskPercentage: number, 
     portfolioValue: number, 
     quantityType: 'coins' | 'dollars',
-    isShort?: boolean
+    isShort?: boolean,
+    fees: number = 0.1,
+    feesType: 'percentage' | 'fixed' = 'percentage'
   ) => {
-    if (portfolioValue <= 0 || entryPrice <= 0 || entryPrice === stopLoss) return 0; // Avoid division by zero
+    // Validate inputs to avoid division by zero or negative values
+    if (portfolioValue <= 0 || entryPrice <= 0 || entryPrice === stopLoss) {
+      console.log('Invalid inputs for position calculation:', { entryPrice, stopLoss, portfolioValue });
+      return 0;
+    }
+    
+    // Ensure stop loss is valid based on position type (long/short)
+    const isValidStopLoss = isShort ? stopLoss > entryPrice : stopLoss < entryPrice;
+    if (!isValidStopLoss) {
+      console.log('Invalid stop loss for position type:', { isShort, entryPrice, stopLoss });
+      return 0;
+    }
     
     // Calculate the price change (always positive)
     const priceChange = Math.abs(entryPrice - stopLoss);
@@ -448,11 +491,84 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     // Calculate the dollar risk amount
     const dollarRiskAmount = (riskPercentage / 100) * portfolioValue;
     
-    // Calculate the position size in coins
-    const positionSizeCoins = dollarRiskAmount / priceChange;
+    // Account for fees in the risk calculation
+    let adjustedDollarRiskAmount = dollarRiskAmount;
     
-    // Return either the coin amount or the dollar equivalent
-    return quantityType === 'dollars' ? positionSizeCoins * entryPrice : positionSizeCoins;
+    if (feesType === 'percentage') {
+      // For percentage fees, we need to solve for position size where:
+      // (position * priceChange / entryPrice) + (position * fees/100) = dollarRiskAmount
+      const feesFactor = fees / 100;
+      
+      if (quantityType === 'dollars') {
+        // For dollar-based positions
+        // The formula is different for dollar-based positions
+        // We need to solve for position size in dollars (P) where:
+        // (P * priceChange / entryPrice) + (P * feesFactor) = dollarRiskAmount
+        // This simplifies to: P = dollarRiskAmount / ((priceChange / entryPrice) + feesFactor)
+        
+        // Avoid division by zero
+        if ((priceChange / entryPrice) + feesFactor <= 0) {
+          console.log('Invalid calculation factors:', { priceChange, entryPrice, feesFactor });
+          return 0;
+        }
+        
+        const positionSizeDollars = dollarRiskAmount / ((priceChange / entryPrice) + feesFactor);
+        return Math.max(positionSizeDollars, 0);
+      } else {
+        // For coin-based positions
+        // We need to solve for position size in coins (P) where:
+        // (P * priceChange) + (P * entryPrice * feesFactor) = dollarRiskAmount
+        // This simplifies to: P = dollarRiskAmount / (priceChange + (entryPrice * feesFactor))
+        
+        // Avoid division by zero
+        if (priceChange + (entryPrice * feesFactor) <= 0) {
+          console.log('Invalid calculation factors:', { priceChange, entryPrice, feesFactor });
+          return 0;
+        }
+        
+        const positionSizeCoins = dollarRiskAmount / (priceChange + (entryPrice * feesFactor));
+        return Math.max(positionSizeCoins, 0);
+      }
+    } else {
+      // For fixed fees, we subtract the fee from the risk amount
+      adjustedDollarRiskAmount = Math.max(0, dollarRiskAmount - fees);
+      
+      if (adjustedDollarRiskAmount <= 0) {
+        console.log('Risk amount too small compared to fixed fees');
+        return 0;
+      }
+      
+      // Calculate the position size
+      if (quantityType === 'dollars') {
+        // For dollar-based positions
+        // We need to solve for position size in dollars (P) where:
+        // P * (priceChange / entryPrice) = adjustedDollarRiskAmount
+        // This simplifies to: P = adjustedDollarRiskAmount / (priceChange / entryPrice)
+        
+        // Avoid division by zero
+        if (priceChange <= 0) {
+          console.log('Price change is zero or negative:', { priceChange });
+          return 0;
+        }
+        
+        const positionSizeDollars = (adjustedDollarRiskAmount * entryPrice) / priceChange;
+        return Math.max(positionSizeDollars, 0);
+      } else {
+        // For coin-based positions
+        // We need to solve for position size in coins (P) where:
+        // P * priceChange = adjustedDollarRiskAmount
+        // This simplifies to: P = adjustedDollarRiskAmount / priceChange
+        
+        // Avoid division by zero
+        if (priceChange <= 0) {
+          console.log('Price change is zero or negative:', { priceChange });
+          return 0;
+        }
+        
+        const positionSizeCoins = adjustedDollarRiskAmount / priceChange;
+        return Math.max(positionSizeCoins, 0);
+      }
+    }
   };
 
   const calculateStopLossFromRisk = (
@@ -461,9 +577,15 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     riskPercentage: number,
     portfolioValue: number,
     quantityType: 'coins' | 'dollars',
-    isShort?: boolean
+    isShort?: boolean,
+    fees: number = 0.1,
+    feesType: 'percentage' | 'fixed' = 'percentage'
   ) => {
-    if (portfolioValue <= 0 || entryPrice <= 0) return 0; // Avoid division by zero
+    // Validate inputs to avoid division by zero or negative values
+    if (portfolioValue <= 0 || entryPrice <= 0 || quantity <= 0 || riskPercentage <= 0) {
+      console.log('Invalid inputs for stop loss calculation:', { entryPrice, quantity, portfolioValue, riskPercentage });
+      return isShort ? entryPrice * 1.1 : entryPrice * 0.9; // Return a default stop loss if inputs are invalid
+    }
     
     // Calculate the dollar risk amount
     const dollarRiskAmount = (riskPercentage / 100) * portfolioValue;
@@ -471,13 +593,48 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     // Calculate the actual quantity in coins
     const actualQuantity = quantityType === 'dollars' ? quantity / entryPrice : quantity;
     
-    if (actualQuantity <= 0) return 0; // Avoid division by zero
+    if (actualQuantity <= 0) {
+      console.log('Invalid quantity for stop loss calculation');
+      return isShort ? entryPrice * 1.1 : entryPrice * 0.9; // Return a default stop loss if quantity is invalid
+    }
+    
+    // Account for fees
+    let adjustedDollarRiskAmount = dollarRiskAmount;
+    
+    if (feesType === 'percentage') {
+      // For percentage fees, we need to account for the fee in the risk
+      const positionSizeDollars = actualQuantity * entryPrice;
+      const feesAmount = (positionSizeDollars * fees) / 100;
+      adjustedDollarRiskAmount = Math.max(0, dollarRiskAmount - feesAmount);
+    } else {
+      // For fixed fees, we subtract the fee from the risk amount
+      adjustedDollarRiskAmount = Math.max(0, dollarRiskAmount - fees);
+    }
+    
+    if (adjustedDollarRiskAmount <= 0) {
+      console.log('Risk amount too small compared to fees');
+      return isShort ? entryPrice * 1.1 : entryPrice * 0.9; // Return a default stop loss if risk amount is too small
+    }
     
     // Calculate the price change needed to reach the desired risk
-    const priceChange = dollarRiskAmount / actualQuantity;
+    const priceChange = adjustedDollarRiskAmount / actualQuantity;
+    
+    // Ensure price change is not too large compared to entry price
+    // Limit to a maximum of 50% of entry price to avoid unrealistic stop losses
+    const maxPriceChange = entryPrice * 0.5;
+    const limitedPriceChange = Math.min(priceChange, maxPriceChange);
     
     // Calculate the stop loss price with full precision
-    return isShort ? entryPrice + priceChange : entryPrice - priceChange;
+    const stopLoss = isShort ? entryPrice + limitedPriceChange : entryPrice - limitedPriceChange;
+    
+    // Ensure stop loss is not negative or zero
+    // For short positions, ensure stop loss is higher than entry price
+    // For long positions, ensure stop loss is lower than entry price but greater than zero
+    if (isShort) {
+      return Math.max(stopLoss, entryPrice * 1.01); // At least 1% above entry price for shorts
+    } else {
+      return Math.max(Math.min(stopLoss, entryPrice * 0.99), 0.00000001); // At most 1% below entry price for longs, and never below zero
+    }
   };
 
   const calculatePositionFromDollarRisk = (
@@ -485,18 +642,103 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     stopLoss: number,
     dollarRiskAmount: number,
     quantityType: 'coins' | 'dollars',
-    isShort: boolean = false
+    isShort: boolean = false,
+    fees: number = 0.1,
+    feesType: 'percentage' | 'fixed' = 'percentage'
   ) => {
-    if (entryPrice <= 0 || entryPrice === stopLoss) return 0; // Avoid division by zero
+    // Validate inputs to avoid division by zero or negative values
+    if (entryPrice <= 0 || entryPrice === stopLoss || dollarRiskAmount <= 0) {
+      console.log('Invalid inputs for position calculation from dollar risk:', { entryPrice, stopLoss, dollarRiskAmount });
+      return 0;
+    }
+    
+    // Ensure stop loss is valid based on position type (long/short)
+    const isValidStopLoss = isShort ? stopLoss > entryPrice : stopLoss < entryPrice;
+    if (!isValidStopLoss) {
+      console.log('Invalid stop loss for position type:', { isShort, entryPrice, stopLoss });
+      return 0;
+    }
     
     // Calculate the price change (always positive)
     const priceChange = Math.abs(entryPrice - stopLoss);
     
-    // Calculate the position size in coins
-    const positionSizeCoins = dollarRiskAmount / priceChange;
+    // Account for fees
+    let adjustedDollarRiskAmount = dollarRiskAmount;
     
-    // Return either the coin amount or the dollar equivalent
-    return quantityType === 'dollars' ? positionSizeCoins * entryPrice : positionSizeCoins;
+    if (feesType === 'percentage') {
+      // For percentage fees, we need to solve for position size where:
+      // (position * priceChange / entryPrice) + (position * fees/100) = dollarRiskAmount
+      const feesFactor = fees / 100;
+      
+      if (quantityType === 'dollars') {
+        // For dollar-based positions
+        // We need to solve for position size in dollars (P) where:
+        // (P * priceChange / entryPrice) + (P * feesFactor) = dollarRiskAmount
+        // This simplifies to: P = dollarRiskAmount / ((priceChange / entryPrice) + feesFactor)
+        
+        // Avoid division by zero
+        if ((priceChange / entryPrice) + feesFactor <= 0) {
+          console.log('Invalid calculation factors:', { priceChange, entryPrice, feesFactor });
+          return 0;
+        }
+        
+        const positionSizeDollars = dollarRiskAmount / ((priceChange / entryPrice) + feesFactor);
+        return Math.max(positionSizeDollars, 0);
+      } else {
+        // For coin-based positions
+        // We need to solve for position size in coins (P) where:
+        // (P * priceChange) + (P * entryPrice * feesFactor) = dollarRiskAmount
+        // This simplifies to: P = dollarRiskAmount / (priceChange + (entryPrice * feesFactor))
+        
+        // Avoid division by zero
+        if (priceChange + (entryPrice * feesFactor) <= 0) {
+          console.log('Invalid calculation factors:', { priceChange, entryPrice, feesFactor });
+          return 0;
+        }
+        
+        const positionSizeCoins = dollarRiskAmount / (priceChange + (entryPrice * feesFactor));
+        return Math.max(positionSizeCoins, 0);
+      }
+    } else {
+      // For fixed fees, we subtract the fee from the risk amount
+      adjustedDollarRiskAmount = Math.max(0, dollarRiskAmount - fees);
+      
+      if (adjustedDollarRiskAmount <= 0) {
+        console.log('Risk amount too small compared to fixed fees');
+        return 0;
+      }
+      
+      // Calculate the position size
+      if (quantityType === 'dollars') {
+        // For dollar-based positions
+        // We need to solve for position size in dollars (P) where:
+        // P * (priceChange / entryPrice) = adjustedDollarRiskAmount
+        // This simplifies to: P = adjustedDollarRiskAmount / (priceChange / entryPrice)
+        
+        // Avoid division by zero
+        if (priceChange <= 0) {
+          console.log('Price change is zero or negative:', { priceChange });
+          return 0;
+        }
+        
+        const positionSizeDollars = (adjustedDollarRiskAmount * entryPrice) / priceChange;
+        return Math.max(positionSizeDollars, 0);
+      } else {
+        // For coin-based positions
+        // We need to solve for position size in coins (P) where:
+        // P * priceChange = adjustedDollarRiskAmount
+        // This simplifies to: P = adjustedDollarRiskAmount / priceChange
+        
+        // Avoid division by zero
+        if (priceChange <= 0) {
+          console.log('Price change is zero or negative:', { priceChange });
+          return 0;
+        }
+        
+        const positionSizeCoins = adjustedDollarRiskAmount / priceChange;
+        return Math.max(positionSizeCoins, 0);
+      }
+    }
   };
 
   // Filter trades based on time period
@@ -556,8 +798,26 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
         ? trade.quantity / trade.entryPrice 
         : trade.quantity;
       
-      const profit = (trade.exitPrice! - trade.entryPrice) * actualQuantity * 
-                    (isShort ? -1 : 1);
+      // Calculate raw profit/loss
+      const rawProfit = (trade.exitPrice! - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+      
+      // Calculate fees
+      let feeAmount = 0;
+      if (trade.fees) {
+        if (trade.feesType === 'percentage') {
+          // For percentage fees, calculate based on position size
+          const positionSizeDollars = trade.quantityType === 'dollars'
+            ? trade.quantity
+            : trade.quantity * trade.entryPrice;
+          feeAmount = (positionSizeDollars * trade.fees) / 100;
+        } else {
+          // For fixed fees, use the fixed amount
+          feeAmount = trade.fees;
+        }
+      }
+      
+      // Subtract fees from profit
+      const profit = rawProfit - feeAmount;
       
       // Calculate R-multiple if stopLoss is available
       let rMultiple = 0;
@@ -620,19 +880,75 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     const actualPeriod: TimePeriod = period || 'all';
     const filteredTrades = filterTradesByPeriod(trades, actualPeriod);
     
-    // Calculate trading profit for the filtered trades
+    // Calculate total profit from trades in the selected period
     const tradingProfit = filteredTrades.reduce((sum, trade) => {
-      if (trade.isActive) return sum; // Skip active trades
-      
+      // Calculate raw profit/loss
       const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-      const actualQuantity = trade.quantityType === 'dollars' 
-        ? trade.quantity / trade.entryPrice 
-        : trade.quantity;
+      let rawProfit = 0;
       
-      if (!trade.exitPrice) return sum; // Skip trades without exit price
+      // Handle partial exits
+      if (trade.partialExits && trade.partialExits.length > 0) {
+        trade.partialExits.forEach(exit => {
+          const partialExitProfit = (exit.exitPrice - trade.entryPrice) * exit.exitQuantity * (isShort ? -1 : 1);
+          rawProfit += partialExitProfit;
+        });
+      }
       
-      const profit = (trade.exitPrice - trade.entryPrice) * actualQuantity * 
-                    (isShort ? -1 : 1);
+      // Handle final exit if trade is closed
+      if (!trade.isActive && trade.exitPrice) {
+        // Use remaining quantity after partial exits
+        const remainingQuantity = trade.remainingQuantity !== undefined 
+          ? trade.remainingQuantity 
+          : trade.quantity;
+          
+        const actualQuantity = trade.quantityType === 'dollars' 
+          ? remainingQuantity / trade.entryPrice 
+          : remainingQuantity;
+          
+        const finalExitProfit = (trade.exitPrice - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+        rawProfit += finalExitProfit;
+      }
+      
+      // Calculate fees
+      let feeAmount = 0;
+      
+      // Add fees from partial exits
+      if (trade.partialExits && trade.partialExits.length > 0) {
+        trade.partialExits.forEach(exit => {
+          if (exit.fees) {
+            if (exit.feesType === 'percentage') {
+              // For percentage fees, calculate based on position size
+              const positionSizeDollars = exit.exitQuantity * trade.entryPrice;
+              feeAmount += (positionSizeDollars * exit.fees) / 100;
+            } else {
+              // For fixed fees, use the fixed amount
+              feeAmount += exit.fees;
+            }
+          }
+        });
+      }
+      
+      // Add fees from final exit
+      if (!trade.isActive && trade.fees) {
+        const remainingQuantity = trade.remainingQuantity !== undefined 
+          ? trade.remainingQuantity 
+          : trade.quantity;
+          
+        if (trade.feesType === 'percentage') {
+          // For percentage fees, calculate based on position size
+          const positionSizeDollars = trade.quantityType === 'dollars'
+            ? remainingQuantity
+            : remainingQuantity * trade.entryPrice;
+          feeAmount += (positionSizeDollars * trade.fees) / 100;
+        } else {
+          // For fixed fees, use the fixed amount
+          feeAmount += trade.fees;
+        }
+      }
+      
+      // Subtract fees from profit
+      const profit = rawProfit - feeAmount;
+      
       return sum + profit;
     }, 0);
     
@@ -847,17 +1163,94 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       const entryDate = tradeDate.toISOString().split('T')[0];
       tradeCount++;
       
+      // Handle partial exits if any
+      if (trade.partialExits && trade.partialExits.length > 0) {
+        trade.partialExits.forEach(exit => {
+          const exitDate = new Date(exit.exitDate).toISOString().split('T')[0];
+          
+          // Calculate profit/loss for partial exit
+          const isShort = trade.cryptocurrency.toLowerCase().includes('short');
+          const actualQuantity = exit.exitQuantity;
+          
+          // Calculate raw profit/loss for partial exit
+          const rawProfit = (exit.exitPrice - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+          
+          // Calculate fees for partial exit
+          let feeAmount = 0;
+          if (exit.fees) {
+            if (exit.feesType === 'percentage') {
+              // For percentage fees, calculate based on position size
+              const positionSizeDollars = actualQuantity * trade.entryPrice;
+              feeAmount = (positionSizeDollars * exit.fees) / 100;
+            } else {
+              // For fixed fees, use the fixed amount
+              feeAmount = exit.fees;
+            }
+          }
+          
+          // Subtract fees from profit
+          const profit = rawProfit - feeAmount;
+          
+          cumulativeProfit += profit;
+          currentPortfolioValue += profit;
+          
+          // Update or create the exit date entry
+          const existingExitData = performanceMap.get(exitDate);
+          if (existingExitData) {
+            performanceMap.set(exitDate, {
+              ...existingExitData,
+              portfolioValue: currentPortfolioValue,
+              cumulativeProfit,
+              tradeCount
+            });
+          } else {
+            performanceMap.set(exitDate, {
+              date: exitDate,
+              portfolioValue: currentPortfolioValue,
+              cumulativeProfit,
+              tradeCount
+            });
+          }
+        });
+      }
+      
       // Handle exit date and profit calculation if trade is closed
       if (!trade.isActive && trade.exitPrice && trade.exitDate) {
         const exitDate = new Date(trade.exitDate).toISOString().split('T')[0];
         
         // Calculate profit/loss
         const isShort = trade.cryptocurrency.toLowerCase().includes('short');
-        const actualQuantity = trade.quantityType === 'dollars' 
-          ? trade.quantity / trade.entryPrice 
-          : trade.quantity;
         
-        const profit = (trade.exitPrice - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+        // Use the remaining quantity after partial exits, or the original quantity if no partial exits
+        const actualQuantity = trade.remainingQuantity !== undefined 
+          ? (trade.quantityType === 'dollars' 
+              ? trade.remainingQuantity / trade.entryPrice 
+              : trade.remainingQuantity)
+          : (trade.quantityType === 'dollars' 
+              ? trade.quantity / trade.entryPrice 
+              : trade.quantity);
+        
+        // Calculate raw profit/loss
+        const rawProfit = (trade.exitPrice - trade.entryPrice) * actualQuantity * (isShort ? -1 : 1);
+        
+        // Calculate fees
+        let feeAmount = 0;
+        if (trade.fees) {
+          if (trade.feesType === 'percentage') {
+            // For percentage fees, calculate based on position size
+            const positionSizeDollars = trade.quantityType === 'dollars'
+              ? (trade.remainingQuantity !== undefined ? trade.remainingQuantity : trade.quantity)
+              : (trade.remainingQuantity !== undefined ? trade.remainingQuantity : trade.quantity) * trade.entryPrice;
+            feeAmount = (positionSizeDollars * trade.fees) / 100;
+          } else {
+            // For fixed fees, use the fixed amount
+            feeAmount = trade.fees;
+          }
+        }
+        
+        // Subtract fees from profit
+        const profit = rawProfit - feeAmount;
+        
         cumulativeProfit += profit;
         currentPortfolioValue += profit;
         

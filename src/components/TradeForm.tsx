@@ -83,6 +83,8 @@ const TradeForm: React.FC = () => {
   const [isRiskInputMode, setIsRiskInputMode] = useState<boolean>(false);
   const [calculationTarget, setCalculationTarget] = useState<'position' | 'stopLoss'>('position');
   const [riskTabValue, setRiskTabValue] = useState<number>(0);
+  const [fees, setFees] = useState<string>('0.1'); // Default trading fee of 0.1%
+  const [feesType, setFeesType] = useState<'percentage' | 'fixed'>('percentage'); // Default to percentage
   
   // For coin search
   const [coins, setCoins] = useState<Coin[]>([]);
@@ -148,8 +150,20 @@ const TradeForm: React.FC = () => {
       const entryPriceNum = parseFloat(entryPrice);
       const stopLossNum = parseFloat(stopLoss);
       const quantityNum = parseFloat(quantity);
+      const feesNum = parseFloat(fees);
       
       if (!isNaN(entryPriceNum) && !isNaN(stopLossNum) && !isNaN(quantityNum)) {
+        // Include fees in risk calculation
+        const positionSizeDollars = quantityType === 'dollars' 
+          ? quantityNum 
+          : quantityNum * entryPriceNum;
+        
+        // Calculate fee amount based on fee type
+        const feeAmount = feesType === 'percentage'
+          ? (positionSizeDollars * feesNum) / 100
+          : feesNum; // Fixed dollar amount
+        
+        // Calculate risk including fees
         const calculatedRisk = calculateRisk(
           entryPriceNum, 
           stopLossNum, 
@@ -158,12 +172,53 @@ const TradeForm: React.FC = () => {
           portfolioValue,
           isShort
         );
-        setRisk(calculatedRisk);
+        
+        // Add fee impact to risk
+        const riskWithFees = calculatedRisk + ((feeAmount / portfolioValue) * 100);
+        
+        setRisk(riskWithFees);
       } else {
         setRisk(null);
       }
+    } else if (isRiskInputMode && entryPrice && stopLoss && quantity && portfolioValue) {
+      // Also calculate risk when in risk input mode
+      const entryPriceNum = parseFloat(entryPrice);
+      const stopLossNum = parseFloat(stopLoss);
+      const quantityNum = parseFloat(quantity);
+      const feesNum = parseFloat(fees);
+      
+      if (!isNaN(entryPriceNum) && !isNaN(stopLossNum) && !isNaN(quantityNum)) {
+        // Include fees in risk calculation
+        const positionSizeDollars = quantityType === 'dollars' 
+          ? quantityNum 
+          : quantityNum * entryPriceNum;
+        
+        // Calculate fee amount based on fee type
+        const feeAmount = feesType === 'percentage'
+          ? (positionSizeDollars * feesNum) / 100
+          : feesNum; // Fixed dollar amount
+        
+        // Calculate risk including fees
+        const calculatedRisk = calculateRisk(
+          entryPriceNum, 
+          stopLossNum, 
+          quantityNum, 
+          quantityType, 
+          portfolioValue,
+          isShort
+        );
+        
+        // Add fee impact to risk
+        const riskWithFees = calculatedRisk + ((feeAmount / portfolioValue) * 100);
+        
+        setRisk(riskWithFees);
+      } else {
+        setRisk(null);
+      }
+    } else {
+      setRisk(null);
     }
-  }, [entryPrice, stopLoss, quantity, quantityType, portfolioValue, calculateRisk, isRiskInputMode, isShort]);
+  }, [entryPrice, stopLoss, quantity, quantityType, portfolioValue, calculateRisk, isRiskInputMode, isShort, fees, feesType]);
   
   // Helper function to format numbers to avoid scientific notation
   const formatFullDecimal = (num: number): string => {
@@ -180,105 +235,216 @@ const TradeForm: React.FC = () => {
   // Calculate position size or stop loss based on desired risk
   useEffect(() => {
     if (isRiskInputMode && riskTabValue === 0 && desiredRisk && portfolioValue) {
-      const desiredRiskNum = parseFloat(desiredRisk);
+      const riskPercentage = parseFloat(desiredRisk);
+      const entryPriceNum = parseFloat(entryPrice);
+      const stopLossNum = parseFloat(stopLoss);
+      const feesNum = parseFloat(fees);
       
-      if (calculationTarget === 'position' && entryPrice && stopLoss) {
-        const entryPriceNum = parseFloat(entryPrice);
-        const stopLossNum = parseFloat(stopLoss);
-        
-        if (!isNaN(desiredRiskNum) && !isNaN(entryPriceNum) && !isNaN(stopLossNum)) {
+      // Add debug logging
+      console.log('Risk calculation inputs:', {
+        calculationTarget,
+        riskPercentage,
+        entryPriceNum,
+        stopLossNum,
+        quantity: parseFloat(quantity),
+        portfolioValue,
+        quantityType,
+        isShort,
+        feesNum,
+        feesType
+      });
+      
+      if (!isNaN(riskPercentage) && !isNaN(feesNum)) {
+        if (calculationTarget === 'position' && !isNaN(entryPriceNum) && !isNaN(stopLossNum) && entryPriceNum !== stopLossNum) {
+          // Calculate position size based on risk percentage
           const calculatedPosition = calculatePositionFromRisk(
             entryPriceNum,
             stopLossNum,
-            desiredRiskNum,
+            riskPercentage,
             portfolioValue,
             quantityType,
-            isShort
+            isShort,
+            feesNum,
+            feesType
           );
           
-          // Format position size to avoid scientific notation for small values
-          if (quantityType === 'coins') {
-            setQuantity(formatFullDecimal(calculatedPosition));
-          } else {
-            setQuantity(calculatedPosition.toFixed(2));
-          }
+          console.log('Calculated position:', calculatedPosition);
           
-          setRisk(desiredRiskNum);
-        }
-      } else if (calculationTarget === 'stopLoss' && entryPrice && quantity) {
-        const entryPriceNum = parseFloat(entryPrice);
-        const quantityNum = parseFloat(quantity);
-        
-        if (!isNaN(desiredRiskNum) && !isNaN(entryPriceNum) && !isNaN(quantityNum)) {
+          if (calculatedPosition > 0) {
+            setQuantity(formatFullDecimal(calculatedPosition));
+          }
+        } else if (calculationTarget === 'stopLoss' && !isNaN(entryPriceNum) && !isNaN(parseFloat(quantity)) && parseFloat(quantity) > 0) {
+          // Calculate stop loss based on risk percentage
+          const quantityNum = parseFloat(quantity);
           const calculatedStopLoss = calculateStopLossFromRisk(
             entryPriceNum,
             quantityNum,
-            desiredRiskNum,
+            riskPercentage,
             portfolioValue,
             quantityType,
-            isShort
+            isShort,
+            feesNum,
+            feesType
           );
           
-          // Format stop loss to avoid scientific notation
-          setStopLoss(formatFullDecimal(calculatedStopLoss));
-          setRisk(desiredRiskNum);
+          console.log('Calculated stop loss:', calculatedStopLoss);
+          
+          if (calculatedStopLoss > 0) {
+            setStopLoss(formatFullDecimal(calculatedStopLoss));
+          }
+        }
+      }
+    } else if (isRiskInputMode && riskTabValue === 1 && dollarRisk && portfolioValue) {
+      const riskAmount = parseFloat(dollarRisk);
+      const entryPriceNum = parseFloat(entryPrice);
+      const stopLossNum = parseFloat(stopLoss);
+      const feesNum = parseFloat(fees);
+      
+      // Add debug logging
+      console.log('Dollar risk calculation inputs:', {
+        riskAmount,
+        entryPriceNum,
+        stopLossNum,
+        portfolioValue,
+        quantityType,
+        isShort,
+        feesNum,
+        feesType
+      });
+      
+      if (!isNaN(riskAmount) && !isNaN(entryPriceNum) && !isNaN(stopLossNum) && !isNaN(feesNum) && entryPriceNum !== stopLossNum) {
+        if (calculationTarget === 'position') {
+          // Calculate position size based on dollar risk
+          const calculatedPosition = calculatePositionFromDollarRisk(
+            entryPriceNum,
+            stopLossNum,
+            riskAmount,
+            quantityType,
+            isShort,
+            feesNum,
+            feesType
+          );
+          
+          console.log('Calculated position from dollar risk:', calculatedPosition);
+          
+          if (calculatedPosition > 0) {
+            setQuantity(formatFullDecimal(calculatedPosition));
+          }
         }
       }
     }
   }, [
-    isRiskInputMode,
+    isRiskInputMode, 
     riskTabValue,
     desiredRisk, 
-    calculationTarget, 
+    dollarRisk,
     entryPrice, 
     stopLoss, 
-    quantity, 
+    quantity,
     portfolioValue, 
+    calculationTarget, 
     quantityType, 
     calculatePositionFromRisk, 
     calculateStopLossFromRisk,
-    isShort
+    calculatePositionFromDollarRisk,
+    isShort,
+    fees,
+    feesType
   ]);
   
-  // Calculate position size based on dollar risk
+  // Add a separate useEffect to recalculate when fees change while in risk input mode
   useEffect(() => {
-    if (isRiskInputMode && riskTabValue === 1 && dollarRisk && entryPrice && stopLoss) {
-      const dollarRiskNum = parseFloat(dollarRisk);
-      const entryPriceNum = parseFloat(entryPrice);
-      const stopLossNum = parseFloat(stopLoss);
-      
-      if (!isNaN(dollarRiskNum) && !isNaN(entryPriceNum) && !isNaN(stopLossNum)) {
-        const calculatedPosition = calculatePositionFromDollarRisk(
-          entryPriceNum,
-          stopLossNum,
-          dollarRiskNum,
-          quantityType,
-          isShort
-        );
+    // Only trigger recalculation if we're in risk input mode and have the necessary values
+    if (isRiskInputMode && entryPrice && portfolioValue) {
+      if (riskTabValue === 0 && desiredRisk) {
+        const riskPercentage = parseFloat(desiredRisk);
+        const entryPriceNum = parseFloat(entryPrice);
+        const feesNum = parseFloat(fees);
         
-        // Format position size to avoid scientific notation for small values
-        if (quantityType === 'coins') {
-          setQuantity(formatFullDecimal(calculatedPosition));
-        } else {
-          setQuantity(calculatedPosition.toFixed(2));
+        if (!isNaN(riskPercentage) && !isNaN(feesNum) && !isNaN(entryPriceNum)) {
+          if (calculationTarget === 'position' && stopLoss && !isNaN(parseFloat(stopLoss)) && entryPriceNum !== parseFloat(stopLoss)) {
+            // Recalculate position size when fees change
+            const stopLossNum = parseFloat(stopLoss);
+            const calculatedPosition = calculatePositionFromRisk(
+              entryPriceNum,
+              stopLossNum,
+              riskPercentage,
+              portfolioValue,
+              quantityType,
+              isShort,
+              feesNum,
+              feesType
+            );
+            
+            console.log('Recalculated position after fee change:', calculatedPosition);
+            
+            if (calculatedPosition > 0) {
+              setQuantity(formatFullDecimal(calculatedPosition));
+            }
+          } else if (calculationTarget === 'stopLoss' && quantity && !isNaN(parseFloat(quantity)) && parseFloat(quantity) > 0) {
+            // Recalculate stop loss when fees change
+            const quantityNum = parseFloat(quantity);
+            const calculatedStopLoss = calculateStopLossFromRisk(
+              entryPriceNum,
+              quantityNum,
+              riskPercentage,
+              portfolioValue,
+              quantityType,
+              isShort,
+              feesNum,
+              feesType
+            );
+            
+            console.log('Recalculated stop loss after fee change:', calculatedStopLoss);
+            
+            if (calculatedStopLoss > 0) {
+              setStopLoss(formatFullDecimal(calculatedStopLoss));
+            }
+          }
         }
+      } else if (riskTabValue === 1 && dollarRisk && stopLoss && entryPrice) {
+        // Recalculate position size based on dollar risk when fees change
+        const riskAmount = parseFloat(dollarRisk);
+        const entryPriceNum = parseFloat(entryPrice);
+        const stopLossNum = parseFloat(stopLoss);
+        const feesNum = parseFloat(fees);
         
-        // Calculate the risk percentage
-        if (portfolioValue > 0) {
-          setRisk((dollarRiskNum / portfolioValue) * 100);
+        if (!isNaN(riskAmount) && !isNaN(entryPriceNum) && !isNaN(stopLossNum) && !isNaN(feesNum) && entryPriceNum !== stopLossNum) {
+          const calculatedPosition = calculatePositionFromDollarRisk(
+            entryPriceNum,
+            stopLossNum,
+            riskAmount,
+            quantityType,
+            isShort,
+            feesNum,
+            feesType
+          );
+          
+          console.log('Recalculated position from dollar risk after fee change:', calculatedPosition);
+          
+          if (calculatedPosition > 0) {
+            setQuantity(formatFullDecimal(calculatedPosition));
+          }
         }
       }
     }
   }, [
+    fees, 
+    feesType, 
     isRiskInputMode,
+    calculationTarget,
     riskTabValue,
+    desiredRisk,
     dollarRisk,
     entryPrice,
     stopLoss,
-    quantityType,
-    calculatePositionFromDollarRisk,
+    quantity,
     portfolioValue,
-    isShort
+    quantityType,
+    isShort,
+    calculatePositionFromRisk,
+    calculateStopLossFromRisk,
+    calculatePositionFromDollarRisk
   ]);
   
   const handleSubmit = (e: React.FormEvent) => {
@@ -288,9 +454,17 @@ const TradeForm: React.FC = () => {
     const entryPriceNum = parseFloat(entryPrice);
     const stopLossNum = parseFloat(stopLoss);
     const quantityNum = parseFloat(quantity);
+    const feesNum = parseFloat(fees);
     
     if (isNaN(entryPriceNum) || isNaN(stopLossNum) || isNaN(quantityNum)) {
       setAlertMessage('Please enter valid numbers for price, quantity, and stop loss.');
+      setAlertSeverity('error');
+      setShowAlert(true);
+      return;
+    }
+    
+    if (isNaN(feesNum) || feesNum < 0) {
+      setAlertMessage('Please enter a valid number for fees.');
       setAlertSeverity('error');
       setShowAlert(true);
       return;
@@ -333,7 +507,9 @@ const TradeForm: React.FC = () => {
       stopLoss: stopLossNum,
       entryDate: new Date(`${entryDate}T00:00:00`).toISOString(),
       notes,
-      lessonsLearned
+      lessonsLearned,
+      fees: feesNum,
+      feesType
     });
     
     // Reset form
@@ -548,6 +724,15 @@ const TradeForm: React.FC = () => {
                   required
                   sx={{ mb: 1 }}
                   disabled={isRiskInputMode && (calculationTarget === 'position' || riskTabValue === 1)}
+                  InputProps={{
+                    endAdornment: isRiskInputMode && (calculationTarget === 'position' || riskTabValue === 1) ? (
+                      <InputAdornment position="end">
+                        <Typography variant="caption" color="primary" sx={{ display: 'flex', alignItems: 'center' }}>
+                          Auto
+                        </Typography>
+                      </InputAdornment>
+                    ) : undefined,
+                  }}
                 />
                 <ToggleButtonGroup
                   value={quantityType}
@@ -579,6 +764,13 @@ const TradeForm: React.FC = () => {
                 }}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  endAdornment: isRiskInputMode && calculationTarget === 'stopLoss' && riskTabValue === 0 ? (
+                    <InputAdornment position="end">
+                      <Typography variant="caption" color="primary" sx={{ display: 'flex', alignItems: 'center' }}>
+                        Auto
+                      </Typography>
+                    </InputAdornment>
+                  ) : undefined,
                 }}
                 required
                 helperText={isShort ? 'For short positions, stop loss should be higher than entry price' : 'For long positions, stop loss should be lower than entry price'}
@@ -686,12 +878,30 @@ const TradeForm: React.FC = () => {
                       fullWidth
                       label="Fees"
                       type="number"
-                      value="0"
+                      value={fees}
+                      onChange={(e) => setFees(e.target.value)}
                       InputProps={{
-                        endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                        endAdornment: <InputAdornment position="end">{feesType === 'percentage' ? '%' : '$'}</InputAdornment>,
                       }}
-                      disabled
+                      helperText={isRiskInputMode ? 
+                        `Position size or stop loss will automatically update to maintain ${riskTabValue === 0 ? desiredRisk + '%' : '$' + dollarRisk} risk` : 
+                        undefined}
                     />
+                    <ToggleButtonGroup
+                      value={feesType}
+                      exclusive
+                      onChange={(e, value) => value && setFeesType(value)}
+                      aria-label="fees type"
+                      size="small"
+                      sx={{ mt: 1 }}
+                    >
+                      <ToggleButton value="percentage" aria-label="percentage">
+                        Percentage
+                      </ToggleButton>
+                      <ToggleButton value="fixed" aria-label="fixed amount">
+                        Fixed $
+                      </ToggleButton>
+                    </ToggleButtonGroup>
                   </Grid>
                 </Grid>
                 
@@ -716,7 +926,11 @@ const TradeForm: React.FC = () => {
                               : parseFloat(quantity) * parseFloat(entryPrice);
                             const stopLossPercentage = Math.abs((parseFloat(entryPrice) - parseFloat(stopLoss)) / parseFloat(entryPrice));
                             const dollarRisk = positionSizeDollars * stopLossPercentage;
-                            const equityRisk = (dollarRisk / portfolioValue) * 100;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            const totalRisk = dollarRisk + feeAmount;
+                            const equityRisk = (totalRisk / portfolioValue) * 100;
                             return `${equityRisk.toFixed(2)}%`;
                           })()}
                         </Typography>
@@ -745,7 +959,11 @@ const TradeForm: React.FC = () => {
                               : parseFloat(quantity) * parseFloat(entryPrice);
                             const stopLossPercentage = Math.abs((parseFloat(entryPrice) - parseFloat(stopLoss)) / parseFloat(entryPrice));
                             const dollarRisk = positionSizeDollars * stopLossPercentage;
-                            return `$${dollarRisk.toFixed(2)}`;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            const totalRisk = dollarRisk + feeAmount;
+                            return `$${totalRisk.toFixed(2)} (incl. $${feeAmount.toFixed(2)} fees)`;
                           })()}
                         </Typography>
                       </Grid>
@@ -760,7 +978,11 @@ const TradeForm: React.FC = () => {
                               : parseFloat(quantity) * parseFloat(entryPrice);
                             const stopLossPercentage = Math.abs((parseFloat(entryPrice) - parseFloat(stopLoss)) / parseFloat(entryPrice));
                             const dollarRisk = positionSizeDollars * stopLossPercentage;
-                            const twoRDollar = dollarRisk * 2;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            const totalRisk = dollarRisk + feeAmount;
+                            const twoRDollar = totalRisk * 2;
                             const twoRPercent = (twoRDollar / portfolioValue) * 100;
                             return `${twoRPercent.toFixed(2)}% ($${twoRDollar.toFixed(2)})`;
                           })()}
@@ -777,7 +999,11 @@ const TradeForm: React.FC = () => {
                               : parseFloat(quantity) * parseFloat(entryPrice);
                             const stopLossPercentage = Math.abs((parseFloat(entryPrice) - parseFloat(stopLoss)) / parseFloat(entryPrice));
                             const dollarRisk = positionSizeDollars * stopLossPercentage;
-                            const threeRDollar = dollarRisk * 3;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            const totalRisk = dollarRisk + feeAmount;
+                            const threeRDollar = totalRisk * 3;
                             const threeRPercent = (threeRDollar / portfolioValue) * 100;
                             return `${threeRPercent.toFixed(2)}% ($${threeRDollar.toFixed(2)})`;
                           })()}
@@ -841,6 +1067,43 @@ const TradeForm: React.FC = () => {
                           </ToggleButton>
                         </ToggleButtonGroup>
                       </Grid>
+                      
+                      {/* Add validation messages */}
+                      <Grid item xs={12}>
+                        {calculationTarget === 'position' && (
+                          <Alert severity="info" sx={{ mt: 1 }}>
+                            <strong>To calculate position size:</strong> Enter your entry price, stop loss, and desired risk percentage. 
+                            {isShort ? 
+                              ' For short positions, stop loss must be higher than entry price.' : 
+                              ' For long positions, stop loss must be lower than entry price.'}
+                          </Alert>
+                        )}
+                        
+                        {calculationTarget === 'stopLoss' && (
+                          <Alert severity="info" sx={{ mt: 1 }}>
+                            <strong>To calculate stop loss:</strong> Enter your entry price, position size, and desired risk percentage.
+                            {isShort ? 
+                              ' For short positions, stop loss will be calculated above your entry price.' : 
+                              ' For long positions, stop loss will be calculated below your entry price.'}
+                          </Alert>
+                        )}
+                        
+                        {/* Show validation errors */}
+                        {calculationTarget === 'position' && entryPrice && stopLoss && (
+                          <>
+                            {isShort && parseFloat(stopLoss) <= parseFloat(entryPrice) && (
+                              <Alert severity="error" sx={{ mt: 1 }}>
+                                For short positions, stop loss must be higher than entry price.
+                              </Alert>
+                            )}
+                            {!isShort && parseFloat(stopLoss) >= parseFloat(entryPrice) && (
+                              <Alert severity="error" sx={{ mt: 1 }}>
+                                For long positions, stop loss must be lower than entry price.
+                              </Alert>
+                            )}
+                          </>
+                        )}
+                      </Grid>
                     </Grid>
                   </TabPanel>
                   
@@ -859,6 +1122,30 @@ const TradeForm: React.FC = () => {
                     <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
                       This will calculate the position size based on your entry price and stop loss.
                     </Typography>
+                    
+                    {/* Add validation messages */}
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      <strong>To calculate position size from dollar risk:</strong> Enter your entry price, stop loss, and dollar risk amount.
+                      {isShort ? 
+                        ' For short positions, stop loss must be higher than entry price.' : 
+                        ' For long positions, stop loss must be lower than entry price.'}
+                    </Alert>
+                    
+                    {/* Show validation errors */}
+                    {entryPrice && stopLoss && (
+                      <>
+                        {isShort && parseFloat(stopLoss) <= parseFloat(entryPrice) && (
+                          <Alert severity="error" sx={{ mt: 1 }}>
+                            For short positions, stop loss must be higher than entry price.
+                          </Alert>
+                        )}
+                        {!isShort && parseFloat(stopLoss) >= parseFloat(entryPrice) && (
+                          <Alert severity="error" sx={{ mt: 1 }}>
+                            For long positions, stop loss must be lower than entry price.
+                          </Alert>
+                        )}
+                      </>
+                    )}
                   </TabPanel>
                 </Box>
               )}
@@ -990,8 +1277,37 @@ const TradeForm: React.FC = () => {
                             const actualQuantity = quantityType === 'dollars' 
                               ? parseFloat(quantity) / entryPriceNum 
                               : parseFloat(quantity);
-                            return (Math.abs(entryPriceNum - stopLossNum) * actualQuantity).toFixed(2);
+                            const slRisk = Math.abs(entryPriceNum - stopLossNum) * actualQuantity;
+                            const positionSizeDollars = quantityType === 'dollars' 
+                              ? parseFloat(quantity) 
+                              : parseFloat(quantity) * entryPriceNum;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            return (slRisk + feeAmount).toFixed(2);
                           })()}
+                          {feesType === 'percentage' ? ` (${fees}%)` : ' (fixed)'}
+                        </Typography>
+                      </Grid>
+                      
+                      <Grid item xs={6}>
+                        <Typography variant="body2" color="textSecondary">
+                          Trading Fees:
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2">
+                          ${(() => {
+                            const entryPriceNum = parseFloat(entryPrice);
+                            const positionSizeDollars = quantityType === 'dollars' 
+                              ? parseFloat(quantity) 
+                              : parseFloat(quantity) * entryPriceNum;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            return feeAmount.toFixed(2);
+                          })()}
+                          {feesType === 'percentage' ? ` (${fees}%)` : ' (fixed)'}
                         </Typography>
                       </Grid>
                       
@@ -1008,7 +1324,14 @@ const TradeForm: React.FC = () => {
                             const actualQuantity = quantityType === 'dollars' 
                               ? parseFloat(quantity) / entryPriceNum 
                               : parseFloat(quantity);
-                            return (Math.abs(entryPriceNum - stopLossNum) * actualQuantity).toFixed(2);
+                            const slRisk = Math.abs(entryPriceNum - stopLossNum) * actualQuantity;
+                            const positionSizeDollars = quantityType === 'dollars' 
+                              ? parseFloat(quantity) 
+                              : parseFloat(quantity) * entryPriceNum;
+                            const feeAmount = feesType === 'percentage'
+                              ? (positionSizeDollars * parseFloat(fees)) / 100
+                              : parseFloat(fees);
+                            return (slRisk + feeAmount).toFixed(2);
                           })()}
                         </Typography>
                       </Grid>

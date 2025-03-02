@@ -21,6 +21,8 @@ export interface Trade {
   trailingType?: 'percentage' | 'fixed';
   highestPrice?: number;
   lowestPrice?: number;
+  fees?: number; // Trading fees as a percentage
+  feesType?: 'percentage' | 'fixed'; // Whether fees are a percentage or fixed dollar amount
 }
 
 export interface PartialExit {
@@ -29,6 +31,8 @@ export interface PartialExit {
   exitPrice: number;
   exitQuantity: number;
   notes?: string;
+  fees?: number; // Trading fees as a percentage
+  feesType?: 'percentage' | 'fixed'; // Whether fees are a percentage or fixed dollar amount
 }
 
 export interface TradeStats {
