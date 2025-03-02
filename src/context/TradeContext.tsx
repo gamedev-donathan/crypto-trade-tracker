@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { Trade, TradeStats, BitcoinComparison, TimePeriod, PortfolioPerformance, PortfolioSettings } from '../types';
+import { Trade, TradeStats, BitcoinComparison, TimePeriod, PortfolioPerformance, PortfolioSettings, Screenshot } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 // Create a separate context for portfolio value to ensure it's globally accessible
@@ -23,7 +23,7 @@ interface TradeContextType {
   trades: Trade[];
   addTrade: (trade: Omit<Trade, 'id' | 'isActive'>) => void;
   updateTrade: (id: string, updatedTrade: Partial<Trade>) => void;
-  closeTrade: (id: string, exitPrice: number, exitDate?: string) => void;
+  closeTrade: (id: string, exitPrice: number, exitDate?: string, fees?: number, feesType?: 'percentage' | 'fixed', screenshots?: Screenshot[]) => void;
   closePartialTrade: (id: string, exitPrice: number, exitQuantity: number, notes?: string) => void;
   setTrailingStop: (id: string, trailingAmount: number, trailingType: 'percentage' | 'fixed') => void;
   updateTrailingStops: () => void;
@@ -244,14 +244,17 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     ));
   };
 
-  const closeTrade = (id: string, exitPrice: number, exitDate?: string) => {
+  const closeTrade = (id: string, exitPrice: number, exitDate?: string, fees?: number, feesType?: 'percentage' | 'fixed', screenshots?: Screenshot[]) => {
     setTrades(trades.map(trade => 
       trade.id === id 
         ? { 
             ...trade, 
             isActive: false, 
             exitPrice, 
-            exitDate: exitDate ? new Date(`${exitDate}T00:00:00`).toISOString() : new Date().toISOString() 
+            exitDate: exitDate ? new Date(`${exitDate}T00:00:00`).toISOString() : new Date().toISOString(),
+            fees,
+            feesType,
+            screenshots
           } 
         : trade
     ));
