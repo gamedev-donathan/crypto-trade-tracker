@@ -25,6 +25,8 @@ import {
 } from '@mui/material';
 import { useTrades, usePortfolio } from '../context/TradeContext';
 import coinGeckoService, { Coin } from '../services/coinGeckoService';
+import ScreenshotUploader from './ScreenshotUploader';
+import { Screenshot } from '../types';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -92,6 +94,8 @@ const TradeForm: React.FC = () => {
   const [searchResults, setSearchResults] = useState<Coin[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [isShort, setIsShort] = useState<boolean>(false);
+  
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   
   // Fetch popular coins on component mount
   useEffect(() => {
@@ -509,7 +513,11 @@ const TradeForm: React.FC = () => {
       notes,
       lessonsLearned,
       fees: feesNum,
-      feesType
+      feesType,
+      screenshots: screenshots.map(screenshot => ({
+        ...screenshot,
+        type: 'entry' // Mark all screenshots as entry screenshots
+      }))
     });
     
     // Reset form
@@ -523,6 +531,7 @@ const TradeForm: React.FC = () => {
     setLessonsLearned('');
     setEntryDate(new Date().toISOString().split('T')[0]);
     setIsShort(false);
+    setScreenshots([]);
     
     // Show success message
     setAlertMessage('Trade added successfully!');
@@ -568,241 +577,242 @@ const TradeForm: React.FC = () => {
         </Alert>
       )}
       
-      <Paper sx={{ p: 3 }}>
-        <form onSubmit={handleSubmit}>
-          <Grid container spacing={3}>
-            {/* Position Type */}
-            <Grid item xs={12}>
-              <FormControl component="fieldset">
-                <ToggleButtonGroup
-                  value={isShort ? 'short' : 'long'}
-                  exclusive
-                  onChange={(e, value) => setIsShort(value === 'short')}
-                  aria-label="position type"
-                >
-                  <ToggleButton value="long" aria-label="long position">
-                    Long Position
-                  </ToggleButton>
-                  <ToggleButton value="short" aria-label="short position">
-                    Short Position
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </FormControl>
-            </Grid>
-            
-            {/* Cryptocurrency Selection */}
-            <Grid item xs={12}>
-              <Autocomplete<Coin, false, false, true>
-                id="cryptocurrency-select"
-                options={searchQuery ? searchResults : coins}
-                getOptionLabel={(option) => {
-                  if (typeof option === 'string') {
-                    return option;
-                  }
-                  return `${option.name} (${option.symbol.toUpperCase()})`;
-                }}
-                loading={loading}
-                value={selectedCoin}
-                onChange={(event, value) => {
-                  if (value && typeof value !== 'string') {
-                    setSelectedCoin(value);
-                    setCustomCoin('');
-                  } else {
-                    setSelectedCoin(null);
-                  }
-                }}
-                onInputChange={(event, newInputValue) => {
-                  setSearchQuery(newInputValue);
-                }}
-                renderInput={(params) => (
+      <Grid container spacing={3}>
+        {/* Main Form Column */}
+        <Grid item xs={12} md={8}>
+          <Paper sx={{ p: 3 }}>
+            <form onSubmit={handleSubmit}>
+              <Grid container spacing={3}>
+                {/* Position Type */}
+                <Grid item xs={12}>
+                  <FormControl component="fieldset">
+                    <ToggleButtonGroup
+                      value={isShort ? 'short' : 'long'}
+                      exclusive
+                      onChange={(e, value) => setIsShort(value === 'short')}
+                      aria-label="position type"
+                    >
+                      <ToggleButton value="long" aria-label="long position">
+                        Long Position
+                      </ToggleButton>
+                      <ToggleButton value="short" aria-label="short position">
+                        Short Position
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  </FormControl>
+                </Grid>
+                
+                {/* Cryptocurrency Selection */}
+                <Grid item xs={12}>
+                  <Autocomplete<Coin, false, false, true>
+                    id="cryptocurrency-select"
+                    options={searchQuery ? searchResults : coins}
+                    getOptionLabel={(option) => {
+                      if (typeof option === 'string') {
+                        return option;
+                      }
+                      return `${option.name} (${option.symbol.toUpperCase()})`;
+                    }}
+                    loading={loading}
+                    value={selectedCoin}
+                    onChange={(event, value) => {
+                      if (value && typeof value !== 'string') {
+                        setSelectedCoin(value);
+                        setCustomCoin('');
+                      } else {
+                        setSelectedCoin(null);
+                      }
+                    }}
+                    onInputChange={(event, newInputValue) => {
+                      setSearchQuery(newInputValue);
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Select Cryptocurrency"
+                        variant="outlined"
+                        InputProps={{
+                          ...params.InputProps,
+                          endAdornment: (
+                            <>
+                              {loading ? <CircularProgress color="inherit" size={20} /> : null}
+                              {params.InputProps.endAdornment}
+                            </>
+                          ),
+                        }}
+                      />
+                    )}
+                    renderOption={(props, option) => (
+                      <li {...props}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          {option.image && (
+                            <Avatar 
+                              src={option.image} 
+                              alt={option.name}
+                              sx={{ width: 24, height: 24, mr: 1 }}
+                            />
+                          )}
+                          <Typography variant="body1">{option.name}</Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                            ({option.symbol.toUpperCase()})
+                          </Typography>
+                        </Box>
+                      </li>
+                    )}
+                    freeSolo
+                  />
+                </Grid>
+                
+                {/* Custom Cryptocurrency */}
+                <Grid item xs={12}>
                   <TextField
-                    {...params}
-                    label="Select Cryptocurrency"
-                    variant="outlined"
+                    fullWidth
+                    label="Or Enter Custom Cryptocurrency"
+                    value={customCoin}
+                    onChange={(e) => {
+                      setCustomCoin(e.target.value);
+                      if (e.target.value) {
+                        setSelectedCoin(null);
+                      }
+                    }}
+                    helperText="If your cryptocurrency is not in the list, you can enter it manually"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Trade Name (Optional)"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g., BTC Breakout, ETH Support Bounce"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Entry Date"
+                    type="date"
+                    value={entryDate}
+                    onChange={(e) => setEntryDate(e.target.value)}
+                    InputLabelProps={{
+                      shrink: true,
+                    }}
+                    required
+                  />
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Entry Price"
+                    type="text"
+                    value={entryPrice}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setEntryPrice(value);
+                    }}
                     InputProps={{
-                      ...params.InputProps,
-                      endAdornment: (
-                        <>
-                          {loading ? <CircularProgress color="inherit" size={20} /> : null}
-                          {params.InputProps.endAdornment}
-                        </>
-                      ),
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                    }}
+                    required
+                    inputProps={{
+                      step: "any"
                     }}
                   />
-                )}
-                renderOption={(props, option) => (
-                  <li {...props}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      {option.image && (
-                        <Avatar 
-                          src={option.image} 
-                          alt={option.name}
-                          sx={{ width: 24, height: 24, mr: 1 }}
-                        />
-                      )}
-                      <Typography variant="body1">{option.name}</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                        ({option.symbol.toUpperCase()})
-                      </Typography>
-                    </Box>
-                  </li>
-                )}
-                freeSolo
-              />
-            </Grid>
-            
-            {/* Custom Cryptocurrency */}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Or Enter Custom Cryptocurrency"
-                value={customCoin}
-                onChange={(e) => {
-                  setCustomCoin(e.target.value);
-                  if (e.target.value) {
-                    setSelectedCoin(null);
-                  }
-                }}
-                helperText="If your cryptocurrency is not in the list, you can enter it manually"
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Trade Name (Optional)"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., BTC Breakout, ETH Support Bounce"
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Entry Date"
-                type="date"
-                value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
-                InputLabelProps={{
-                  shrink: true,
-                }}
-                required
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Entry Price"
-                type="text"
-                value={entryPrice}
-                onChange={(e) => {
-                  // Ensure we're storing the full decimal representation
-                  const value = e.target.value;
-                  setEntryPrice(value);
-                }}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                }}
-                required
-                inputProps={{
-                  step: "any" // Allows any decimal precision
-                }}
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <TextField
-                  fullWidth
-                  label="Quantity"
-                  type="number"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  required
-                  sx={{ mb: 1 }}
-                  disabled={isRiskInputMode && (calculationTarget === 'position' || riskTabValue === 1)}
-                  InputProps={{
-                    endAdornment: isRiskInputMode && (calculationTarget === 'position' || riskTabValue === 1) ? (
-                      <InputAdornment position="end">
-                        <Typography variant="caption" color="primary" sx={{ display: 'flex', alignItems: 'center' }}>
-                          Auto
-                        </Typography>
-                      </InputAdornment>
-                    ) : undefined,
-                  }}
-                />
-                <ToggleButtonGroup
-                  value={quantityType}
-                  exclusive
-                  onChange={handleQuantityTypeChange}
-                  aria-label="quantity type"
-                  size="small"
-                >
-                  <ToggleButton value="coins" aria-label="coins">
-                    Coins
-                  </ToggleButton>
-                  <ToggleButton value="dollars" aria-label="dollars">
-                    Dollars
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Stop Loss"
-                type="text"
-                value={stopLoss}
-                onChange={(e) => {
-                  // Ensure we're storing the full decimal representation
-                  const value = e.target.value;
-                  setStopLoss(value);
-                }}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                  endAdornment: isRiskInputMode && calculationTarget === 'stopLoss' && riskTabValue === 0 ? (
-                    <InputAdornment position="end">
-                      <Typography variant="caption" color="primary" sx={{ display: 'flex', alignItems: 'center' }}>
-                        Auto
-                      </Typography>
-                    </InputAdornment>
-                  ) : undefined,
-                }}
-                required
-                helperText={isShort ? 'For short positions, stop loss should be higher than entry price' : 'For long positions, stop loss should be lower than entry price'}
-                disabled={isRiskInputMode && calculationTarget === 'stopLoss' && riskTabValue === 0}
-                inputProps={{
-                  step: "any" // Allows any decimal precision
-                }}
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Portfolio Value"
-                type="number"
-                value={portfolioValue}
-                onChange={(e) => setPortfolioValue(parseFloat(e.target.value) || 0)}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                }}
-                required
-                helperText="Portfolio value is automatically calculated based on your trade history"
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="h6" gutterBottom>
-                Risk Management
-              </Typography>
-              
-              <Box sx={{ mb: 3 }}>
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                    <TextField
+                      fullWidth
+                      label="Quantity"
+                      type="number"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      required
+                      sx={{ mb: 1 }}
+                      disabled={isRiskInputMode && (calculationTarget === 'position' || riskTabValue === 1)}
+                      InputProps={{
+                        endAdornment: isRiskInputMode && (calculationTarget === 'position' || riskTabValue === 1) ? (
+                          <InputAdornment position="end">
+                            <Typography variant="caption" color="primary" sx={{ display: 'flex', alignItems: 'center' }}>
+                              Auto
+                            </Typography>
+                          </InputAdornment>
+                        ) : undefined,
+                      }}
+                    />
+                    <ToggleButtonGroup
+                      value={quantityType}
+                      exclusive
+                      onChange={handleQuantityTypeChange}
+                      aria-label="quantity type"
+                      size="small"
+                    >
+                      <ToggleButton value="coins" aria-label="coins">
+                        Coins
+                      </ToggleButton>
+                      <ToggleButton value="dollars" aria-label="dollars">
+                        Dollars
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Stop Loss"
+                    type="text"
+                    value={stopLoss}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setStopLoss(value);
+                    }}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                      endAdornment: isRiskInputMode && calculationTarget === 'stopLoss' && riskTabValue === 0 ? (
+                        <InputAdornment position="end">
+                          <Typography variant="caption" color="primary" sx={{ display: 'flex', alignItems: 'center' }}>
+                            Auto
+                          </Typography>
+                        </InputAdornment>
+                      ) : undefined,
+                    }}
+                    required
+                    helperText={isShort ? 'For short positions, stop loss should be higher than entry price' : 'For long positions, stop loss should be lower than entry price'}
+                    disabled={isRiskInputMode && calculationTarget === 'stopLoss' && riskTabValue === 0}
+                    inputProps={{
+                      step: "any"
+                    }}
+                  />
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Portfolio Value"
+                    type="number"
+                    value={portfolioValue}
+                    onChange={(e) => setPortfolioValue(parseFloat(e.target.value) || 0)}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                    }}
+                    required
+                    helperText="Portfolio value is automatically calculated based on your trade history"
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="h6" gutterBottom>
+                    Risk Management
+                  </Typography>
+                  
+                  <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" gutterBottom>
                   Quick Risk Calculator
                 </Typography>
@@ -1013,83 +1023,126 @@ const TradeForm: React.FC = () => {
                   </Paper>
                 )}
               </Box>
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isRiskInputMode}
-                    onChange={(e) => setIsRiskInputMode(e.target.checked)}
-                  />
-                }
-                label="Calculate position size or stop loss from risk"
-              />
-              
-              {isRiskInputMode && (
-                <Box sx={{ mt: 2 }}>
-                  <Tabs 
-                    value={riskTabValue} 
-                    onChange={handleRiskTabChange}
-                    aria-label="risk calculation tabs"
-                    sx={{ borderBottom: 1, borderColor: 'divider' }}
-                  >
-                    <Tab label="Risk Percentage" id="risk-tab-0" aria-controls="risk-tabpanel-0" />
-                    <Tab label="Dollar Risk" id="risk-tab-1" aria-controls="risk-tabpanel-1" />
-                  </Tabs>
                   
-                  <TabPanel value={riskTabValue} index={0}>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={isRiskInputMode}
+                        onChange={(e) => setIsRiskInputMode(e.target.checked)}
+                      />
+                    }
+                    label="Calculate position size or stop loss from risk"
+                  />
+                  
+                  {isRiskInputMode && (
+                    <Box sx={{ mt: 2 }}>
+                      <Tabs 
+                        value={riskTabValue} 
+                        onChange={handleRiskTabChange}
+                        aria-label="risk calculation tabs"
+                        sx={{ borderBottom: 1, borderColor: 'divider' }}
+                      >
+                        <Tab label="Risk Percentage" id="risk-tab-0" aria-controls="risk-tabpanel-0" />
+                        <Tab label="Dollar Risk" id="risk-tab-1" aria-controls="risk-tabpanel-1" />
+                      </Tabs>
+                      
+                      <TabPanel value={riskTabValue} index={0}>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Desired Risk (%)"
+                              type="number"
+                              value={desiredRisk}
+                              onChange={(e) => setDesiredRisk(e.target.value)}
+                              InputProps={{
+                                endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                              }}
+                              helperText="Enter your desired risk as a percentage of portfolio"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <ToggleButtonGroup
+                              value={calculationTarget}
+                              exclusive
+                              onChange={handleCalculationTargetChange}
+                              aria-label="calculation target"
+                              fullWidth
+                            >
+                              <ToggleButton value="position" aria-label="calculate position">
+                                Calculate Position Size
+                              </ToggleButton>
+                              <ToggleButton value="stopLoss" aria-label="calculate stop loss">
+                                Calculate Stop Loss
+                              </ToggleButton>
+                            </ToggleButtonGroup>
+                          </Grid>
+                          
+                          {/* Add validation messages */}
+                          <Grid item xs={12}>
+                            {calculationTarget === 'position' && (
+                              <Alert severity="info" sx={{ mt: 1 }}>
+                                <strong>To calculate position size:</strong> Enter your entry price, stop loss, and desired risk percentage. 
+                                {isShort ? 
+                                  ' For short positions, stop loss must be higher than entry price.' : 
+                                  ' For long positions, stop loss must be lower than entry price.'}
+                              </Alert>
+                            )}
+                            
+                            {calculationTarget === 'stopLoss' && (
+                              <Alert severity="info" sx={{ mt: 1 }}>
+                                <strong>To calculate stop loss:</strong> Enter your entry price, position size, and desired risk percentage.
+                                {isShort ? 
+                                  ' For short positions, stop loss will be calculated above your entry price.' : 
+                                  ' For long positions, stop loss will be calculated below your entry price.'}
+                              </Alert>
+                            )}
+                            
+                            {/* Show validation errors */}
+                            {calculationTarget === 'position' && entryPrice && stopLoss && (
+                              <>
+                                {isShort && parseFloat(stopLoss) <= parseFloat(entryPrice) && (
+                                  <Alert severity="error" sx={{ mt: 1 }}>
+                                    For short positions, stop loss must be higher than entry price.
+                                  </Alert>
+                                )}
+                                {!isShort && parseFloat(stopLoss) >= parseFloat(entryPrice) && (
+                                  <Alert severity="error" sx={{ mt: 1 }}>
+                                    For long positions, stop loss must be lower than entry price.
+                                  </Alert>
+                                )}
+                              </>
+                            )}
+                          </Grid>
+                        </Grid>
+                      </TabPanel>
+                      
+                      <TabPanel value={riskTabValue} index={1}>
                         <TextField
                           fullWidth
-                          label="Desired Risk (%)"
+                          label="Dollar Risk Amount"
                           type="number"
-                          value={desiredRisk}
-                          onChange={(e) => setDesiredRisk(e.target.value)}
+                          value={dollarRisk}
+                          onChange={(e) => setDollarRisk(e.target.value)}
                           InputProps={{
-                            endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
                           }}
-                          helperText="Enter your desired risk as a percentage of portfolio"
+                          helperText="Enter the exact dollar amount you're willing to risk on this trade"
                         />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <ToggleButtonGroup
-                          value={calculationTarget}
-                          exclusive
-                          onChange={handleCalculationTargetChange}
-                          aria-label="calculation target"
-                          fullWidth
-                        >
-                          <ToggleButton value="position" aria-label="calculate position">
-                            Calculate Position Size
-                          </ToggleButton>
-                          <ToggleButton value="stopLoss" aria-label="calculate stop loss">
-                            Calculate Stop Loss
-                          </ToggleButton>
-                        </ToggleButtonGroup>
-                      </Grid>
-                      
-                      {/* Add validation messages */}
-                      <Grid item xs={12}>
-                        {calculationTarget === 'position' && (
-                          <Alert severity="info" sx={{ mt: 1 }}>
-                            <strong>To calculate position size:</strong> Enter your entry price, stop loss, and desired risk percentage. 
-                            {isShort ? 
-                              ' For short positions, stop loss must be higher than entry price.' : 
-                              ' For long positions, stop loss must be lower than entry price.'}
-                          </Alert>
-                        )}
+                        <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                          This will calculate the position size based on your entry price and stop loss.
+                        </Typography>
                         
-                        {calculationTarget === 'stopLoss' && (
-                          <Alert severity="info" sx={{ mt: 1 }}>
-                            <strong>To calculate stop loss:</strong> Enter your entry price, position size, and desired risk percentage.
-                            {isShort ? 
-                              ' For short positions, stop loss will be calculated above your entry price.' : 
-                              ' For long positions, stop loss will be calculated below your entry price.'}
-                          </Alert>
-                        )}
+                        {/* Add validation messages */}
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          <strong>To calculate position size from dollar risk:</strong> Enter your entry price, stop loss, and dollar risk amount.
+                          {isShort ? 
+                            ' For short positions, stop loss must be higher than entry price.' : 
+                            ' For long positions, stop loss must be lower than entry price.'}
+                        </Alert>
                         
                         {/* Show validation errors */}
-                        {calculationTarget === 'position' && entryPrice && stopLoss && (
+                        {entryPrice && stopLoss && (
                           <>
                             {isShort && parseFloat(stopLoss) <= parseFloat(entryPrice) && (
                               <Alert severity="error" sx={{ mt: 1 }}>
@@ -1103,264 +1156,235 @@ const TradeForm: React.FC = () => {
                             )}
                           </>
                         )}
-                      </Grid>
-                    </Grid>
-                  </TabPanel>
-                  
-                  <TabPanel value={riskTabValue} index={1}>
-                    <TextField
-                      fullWidth
-                      label="Dollar Risk Amount"
-                      type="number"
-                      value={dollarRisk}
-                      onChange={(e) => setDollarRisk(e.target.value)}
-                      InputProps={{
-                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                      }}
-                      helperText="Enter the exact dollar amount you're willing to risk on this trade"
-                    />
-                    <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-                      This will calculate the position size based on your entry price and stop loss.
-                    </Typography>
-                    
-                    {/* Add validation messages */}
-                    <Alert severity="info" sx={{ mt: 1 }}>
-                      <strong>To calculate position size from dollar risk:</strong> Enter your entry price, stop loss, and dollar risk amount.
-                      {isShort ? 
-                        ' For short positions, stop loss must be higher than entry price.' : 
-                        ' For long positions, stop loss must be lower than entry price.'}
-                    </Alert>
-                    
-                    {/* Show validation errors */}
-                    {entryPrice && stopLoss && (
-                      <>
-                        {isShort && parseFloat(stopLoss) <= parseFloat(entryPrice) && (
-                          <Alert severity="error" sx={{ mt: 1 }}>
-                            For short positions, stop loss must be higher than entry price.
-                          </Alert>
-                        )}
-                        {!isShort && parseFloat(stopLoss) >= parseFloat(entryPrice) && (
-                          <Alert severity="error" sx={{ mt: 1 }}>
-                            For long positions, stop loss must be lower than entry price.
-                          </Alert>
-                        )}
-                      </>
-                    )}
-                  </TabPanel>
-                </Box>
-              )}
-            </Grid>
-            
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Notes"
-                multiline
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Lessons Learned"
-                multiline
-                rows={3}
-                value={lessonsLearned}
-                onChange={(e) => setLessonsLearned(e.target.value)}
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <Paper 
-                elevation={3} 
-                sx={{ 
-                  p: 2, 
-                  bgcolor: risk && risk > 2 ? 'error.light' : 'success.light'
-                }}
-              >
-                <Typography variant="subtitle1" gutterBottom>
-                  Risk Analysis
-                </Typography>
-                <Typography variant="h5">
-                  {risk !== null ? `${risk.toFixed(2)}%` : 'N/A'}
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  {risk !== null && (
-                    risk > 2 
-                      ? 'Warning: Risk exceeds 2% of portfolio value!' 
-                      : 'Risk is within acceptable limits (≤ 2%)'
+                      </TabPanel>
+                    </Box>
                   )}
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Notes"
+                    multiline
+                    rows={3}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Lessons Learned"
+                    multiline
+                    rows={3}
+                    value={lessonsLearned}
+                    onChange={(e) => setLessonsLearned(e.target.value)}
+                  />
+                </Grid>
+                
+                {/* Add Screenshot Uploader */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }} />
+                  <ScreenshotUploader 
+                    screenshots={screenshots}
+                    onScreenshotsChange={setScreenshots}
+                    screenshotType="entry"
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Button 
+                    type="submit" 
+                    variant="contained" 
+                    color="primary" 
+                    size="large"
+                    fullWidth
+                  >
+                    Add Trade
+                  </Button>
+                </Grid>
+              </Grid>
+            </form>
+          </Paper>
+        </Grid>
+        
+        {/* Risk Analysis Column */}
+        <Grid item xs={12} md={4}>
+          <Paper 
+            elevation={3} 
+            sx={{ 
+              p: 2, 
+              bgcolor: risk && risk > 2 ? 'error.light' : 'success.light',
+              position: { md: 'sticky' },
+              top: { md: '24px' }
+            }}
+          >
+            <Typography variant="subtitle1" gutterBottom>
+              Risk Analysis
+            </Typography>
+            <Typography variant="h5">
+              {risk !== null ? `${risk.toFixed(2)}%` : 'N/A'}
+            </Typography>
+            <Typography variant="body2" color="textSecondary">
+              {risk !== null && (
+                risk > 2 
+                  ? 'Warning: Risk exceeds 2% of portfolio value!' 
+                  : 'Risk is within acceptable limits (≤ 2%)'
+              )}
+            </Typography>
+            
+            {/* Enhanced Risk Analysis */}
+            {entryPrice && stopLoss && quantity && portfolioValue && (
+              <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed rgba(0,0,0,0.1)' }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Detailed Risk Breakdown
                 </Typography>
                 
-                {/* Enhanced Risk Analysis */}
-                {entryPrice && stopLoss && quantity && portfolioValue && (
-                  <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed rgba(0,0,0,0.1)' }}>
-                    <Typography variant="subtitle2" gutterBottom>
-                      Detailed Risk Breakdown
+                <Grid container spacing={1}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Account Size:
                     </Typography>
-                    
-                    <Grid container spacing={1}>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          Account Size:
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2">
-                          ${parseFloat(portfolioValue.toString()).toLocaleString()}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          Position Size:
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2">
-                          {quantityType === 'dollars' 
-                            ? `$${parseFloat(quantity).toLocaleString()}`
-                            : `${parseFloat(quantity).toLocaleString()} coins ($${(parseFloat(quantity) * parseFloat(entryPrice)).toLocaleString()})`
-                          }
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          % of Account:
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2">
-                          {quantityType === 'dollars'
-                            ? `${((parseFloat(quantity) / portfolioValue) * 100).toFixed(2)}%`
-                            : `${((parseFloat(quantity) * parseFloat(entryPrice) / portfolioValue) * 100).toFixed(2)}%`
-                          }
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          Price Change to Stop:
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2">
-                          {(() => {
-                            const entryPriceNum = parseFloat(entryPrice);
-                            const stopLossNum = parseFloat(stopLoss);
-                            const priceDiff = Math.abs(entryPriceNum - stopLossNum);
-                            
-                            // Determine appropriate decimal places based on price
-                            const decimalPlaces = entryPriceNum < 0.0001 ? 12 : 
-                                                 entryPriceNum < 0.01 ? 8 : 
-                                                 entryPriceNum < 1 ? 6 : 2;
-                            
-                            return `$${priceDiff.toFixed(decimalPlaces)} (${((priceDiff / entryPriceNum) * 100).toFixed(2)}%)`;
-                          })()}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          Dollar Risk:
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" fontWeight="bold">
-                          ${(() => {
-                            const entryPriceNum = parseFloat(entryPrice);
-                            const stopLossNum = parseFloat(stopLoss);
-                            const actualQuantity = quantityType === 'dollars' 
-                              ? parseFloat(quantity) / entryPriceNum 
-                              : parseFloat(quantity);
-                            const slRisk = Math.abs(entryPriceNum - stopLossNum) * actualQuantity;
-                            const positionSizeDollars = quantityType === 'dollars' 
-                              ? parseFloat(quantity) 
-                              : parseFloat(quantity) * entryPriceNum;
-                            const feeAmount = feesType === 'percentage'
-                              ? (positionSizeDollars * parseFloat(fees)) / 100
-                              : parseFloat(fees);
-                            return (slRisk + feeAmount).toFixed(2);
-                          })()}
-                          {feesType === 'percentage' ? ` (${fees}%)` : ' (fixed)'}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          Trading Fees:
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2">
-                          ${(() => {
-                            const entryPriceNum = parseFloat(entryPrice);
-                            const positionSizeDollars = quantityType === 'dollars' 
-                              ? parseFloat(quantity) 
-                              : parseFloat(quantity) * entryPriceNum;
-                            const feeAmount = feesType === 'percentage'
-                              ? (positionSizeDollars * parseFloat(fees)) / 100
-                              : parseFloat(fees);
-                            return feeAmount.toFixed(2);
-                          })()}
-                          {feesType === 'percentage' ? ` (${fees}%)` : ' (fixed)'}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="textSecondary">
-                          R-Multiple (1R):
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2">
-                          ${(() => {
-                            const entryPriceNum = parseFloat(entryPrice);
-                            const stopLossNum = parseFloat(stopLoss);
-                            const actualQuantity = quantityType === 'dollars' 
-                              ? parseFloat(quantity) / entryPriceNum 
-                              : parseFloat(quantity);
-                            const slRisk = Math.abs(entryPriceNum - stopLossNum) * actualQuantity;
-                            const positionSizeDollars = quantityType === 'dollars' 
-                              ? parseFloat(quantity) 
-                              : parseFloat(quantity) * entryPriceNum;
-                            const feeAmount = feesType === 'percentage'
-                              ? (positionSizeDollars * parseFloat(fees)) / 100
-                              : parseFloat(fees);
-                            return (slRisk + feeAmount).toFixed(2);
-                          })()}
-                        </Typography>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                )}
-                
-                {quantityType === 'dollars' && entryPrice && quantity && (
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    Equivalent to approximately {(parseFloat(quantity) / parseFloat(entryPrice)).toFixed(8)} coins
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      ${parseFloat(portfolioValue.toString()).toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Position Size:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      {quantityType === 'dollars' 
+                        ? `$${parseFloat(quantity).toLocaleString()}`
+                        : `${parseFloat(quantity).toLocaleString()} coins ($${(parseFloat(quantity) * parseFloat(entryPrice)).toLocaleString()})`
+                      }
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      % of Account:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      {quantityType === 'dollars'
+                        ? `${((parseFloat(quantity) / portfolioValue) * 100).toFixed(2)}%`
+                        : `${((parseFloat(quantity) * parseFloat(entryPrice) / portfolioValue) * 100).toFixed(2)}%`
+                      }
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Price Change to Stop:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      {(() => {
+                        const entryPriceNum = parseFloat(entryPrice);
+                        const stopLossNum = parseFloat(stopLoss);
+                        const priceDiff = Math.abs(entryPriceNum - stopLossNum);
+                        
+                        const decimalPlaces = entryPriceNum < 0.0001 ? 12 : 
+                                             entryPriceNum < 0.01 ? 8 : 
+                                             entryPriceNum < 1 ? 6 : 2;
+                        
+                        return `$${priceDiff.toFixed(decimalPlaces)} (${((priceDiff / entryPriceNum) * 100).toFixed(2)}%)`;
+                      })()}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Dollar Risk:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" fontWeight="bold">
+                      ${(() => {
+                        const entryPriceNum = parseFloat(entryPrice);
+                        const stopLossNum = parseFloat(stopLoss);
+                        const actualQuantity = quantityType === 'dollars' 
+                          ? parseFloat(quantity) / entryPriceNum 
+                          : parseFloat(quantity);
+                        const slRisk = Math.abs(entryPriceNum - stopLossNum) * actualQuantity;
+                        const positionSizeDollars = quantityType === 'dollars' 
+                          ? parseFloat(quantity) 
+                          : parseFloat(quantity) * entryPriceNum;
+                        const feeAmount = feesType === 'percentage'
+                          ? (positionSizeDollars * parseFloat(fees)) / 100
+                          : parseFloat(fees);
+                        return (slRisk + feeAmount).toFixed(2);
+                      })()}
+                      {feesType === 'percentage' ? ` (${fees}%)` : ' (fixed)'}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Trading Fees:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      ${(() => {
+                        const entryPriceNum = parseFloat(entryPrice);
+                        const positionSizeDollars = quantityType === 'dollars' 
+                          ? parseFloat(quantity) 
+                          : parseFloat(quantity) * entryPriceNum;
+                        const feeAmount = feesType === 'percentage'
+                          ? (positionSizeDollars * parseFloat(fees)) / 100
+                          : parseFloat(fees);
+                        return feeAmount.toFixed(2);
+                      })()}
+                      {feesType === 'percentage' ? ` (${fees}%)` : ' (fixed)'}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      R-Multiple (1R):
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      ${(() => {
+                        const entryPriceNum = parseFloat(entryPrice);
+                        const stopLossNum = parseFloat(stopLoss);
+                        const actualQuantity = quantityType === 'dollars' 
+                          ? parseFloat(quantity) / entryPriceNum 
+                          : parseFloat(quantity);
+                        const slRisk = Math.abs(entryPriceNum - stopLossNum) * actualQuantity;
+                        const positionSizeDollars = quantityType === 'dollars' 
+                          ? parseFloat(quantity) 
+                          : parseFloat(quantity) * entryPriceNum;
+                        const feeAmount = feesType === 'percentage'
+                          ? (positionSizeDollars * parseFloat(fees)) / 100
+                          : parseFloat(fees);
+                        return (slRisk + feeAmount).toFixed(2);
+                      })()}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Box>
+            )}
             
-            <Grid item xs={12}>
-              <Button 
-                type="submit" 
-                variant="contained" 
-                color="primary" 
-                size="large"
-                fullWidth
-              >
-                Add Trade
-              </Button>
-            </Grid>
-          </Grid>
-        </form>
-      </Paper>
+            {quantityType === 'dollars' && entryPrice && quantity && (
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Equivalent to approximately {(parseFloat(quantity) / parseFloat(entryPrice)).toFixed(8)} coins
+              </Typography>
+            )}
+          </Paper>
+        </Grid>
+      </Grid>
     </Box>
   );
 };

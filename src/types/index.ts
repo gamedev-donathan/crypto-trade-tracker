@@ -23,6 +23,16 @@ export interface Trade {
   lowestPrice?: number;
   fees?: number; // Trading fees as a percentage
   feesType?: 'percentage' | 'fixed'; // Whether fees are a percentage or fixed dollar amount
+  screenshots?: Screenshot[]; // Array of screenshots associated with the trade
+}
+
+export interface Screenshot {
+  id: string;
+  data: string; // Base64 encoded image data
+  timestamp: string;
+  label?: string; // Optional label for the screenshot
+  type: 'entry' | 'exit' | 'partial' | 'other'; // Type of screenshot
+  filename?: string; // Used for ZIP export/import
 }
 
 export interface PartialExit {

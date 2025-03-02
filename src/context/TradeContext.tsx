@@ -30,6 +30,7 @@ interface TradeContextType {
   updateStopLoss: (id: string, newStopLoss: number) => void;
   deleteTrade: (id: string) => void;
   importTrades: (importedTrades: Trade[]) => void;
+  setTrades: (trades: Trade[]) => void;
   calculateRisk: (entryPrice: number, stopLoss: number, quantity: number, quantityType: 'coins' | 'dollars', portfolioValue: number, isShort?: boolean) => number;
   getTradeStats: (period?: TimePeriod) => TradeStats;
   getBitcoinComparison: (period?: TimePeriod) => BitcoinComparison;
@@ -1370,6 +1371,7 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
           updateStopLoss,
           deleteTrade,
           importTrades,
+          setTrades,
           calculateRisk,
           getTradeStats,
           getBitcoinComparison,
