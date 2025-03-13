@@ -14,10 +14,13 @@ import {
   Grid,
   TextField,
   Button,
-  SelectChangeEvent
+  SelectChangeEvent,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import AutoSaveSettings from './AutoSaveSettings';
 import { useTrades, AppSettings } from '../context/TradeContext';
+import { importMostRecentBackup, requestDirectoryPermission } from '../utils/autoImportUtils';
 
 // Extended portfolio settings for the UI
 interface ExtendedPortfolioSettings {
@@ -28,7 +31,18 @@ interface ExtendedPortfolioSettings {
 }
 
 const Settings: React.FC = () => {
-  const { portfolioSettings, setPortfolioSettings, appSettings, setAppSettings } = useTrades();
+  const { 
+    portfolioSettings, 
+    setPortfolioSettings, 
+    appSettings, 
+    setAppSettings,
+    importTrades,
+    setPortfolioValue
+  } = useTrades();
+  
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info' | 'warning'>('success');
   
   // Create extended portfolio settings with optional UI fields
   const [extendedSettings, setExtendedSettings] = useState<ExtendedPortfolioSettings>(() => {
@@ -105,6 +119,62 @@ const Settings: React.FC = () => {
       startDate: extendedSettings.startDate,
       initialBalance: extendedSettings.initialBalance
     }));
+  };
+  
+  // Handle manual import
+  const handleManualImport = async () => {
+    try {
+      // Request permission to access the save_data directory
+      const permissionGranted = await requestDirectoryPermission();
+      
+      if (permissionGranted) {
+        // Save that we've requested permission
+        localStorage.setItem('permissionRequested', 'true');
+        
+        // Import the most recent backup
+        const importResult = await importMostRecentBackup();
+        
+        if (importResult.success) {
+          // Update the trades in context
+          importTrades(importResult.trades);
+          
+          // Update portfolio settings if available
+          if (importResult.portfolioSettings) {
+            setPortfolioSettings(importResult.portfolioSettings);
+          }
+          
+          // Update portfolio value if available
+          if (importResult.portfolioValue) {
+            setPortfolioValue(importResult.portfolioValue);
+          }
+          
+          // Update app settings if available
+          if (importResult.appSettings) {
+            setAppSettings(importResult.appSettings);
+          }
+          
+          // Show success message
+          setSnackbarMessage(`Import successful: ${importResult.message}`);
+          setSnackbarSeverity('success');
+          setSnackbarOpen(true);
+        } else {
+          // Show error message
+          setSnackbarMessage(`Import failed: ${importResult.message}`);
+          setSnackbarSeverity('warning');
+          setSnackbarOpen(true);
+        }
+      } else {
+        // Show error message
+        setSnackbarMessage('Permission denied. Cannot import backup files.');
+        setSnackbarSeverity('error');
+        setSnackbarOpen(true);
+      }
+    } catch (error) {
+      console.error('Error importing backup:', error);
+      setSnackbarMessage(`Error importing backup: ${error instanceof Error ? error.message : String(error)}`);
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
   };
   
   return (
@@ -257,13 +327,38 @@ const Settings: React.FC = () => {
       </Paper>
       
       {/* Backup & Auto-Save Settings */}
-      <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
-        Backup & Auto-Save
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 4, mb: 2 }}>
+        <Typography variant="h5">
+          Backup & Auto-Save
+        </Typography>
+        <Button 
+          variant="outlined" 
+          color="primary"
+          onClick={handleManualImport}
+        >
+          Import Backup File
+        </Button>
+      </Box>
       
       <AutoSaveSettings />
       
       {/* Additional settings sections can be added here */}
+      
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbarOpen(false)}
+          severity={snackbarSeverity}
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

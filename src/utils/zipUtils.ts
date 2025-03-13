@@ -152,4 +152,80 @@ export const importTradesFromZip = async (file: File): Promise<{
   }
   
   return { trades, portfolioSettings, portfolioValue, appSettings };
+};
+
+/**
+ * Creates a ZIP blob containing trade data, portfolio settings, and screenshots
+ * @param trades Array of trades to export
+ * @param portfolioSettings Portfolio settings to include in the export
+ * @param portfolioValue Current portfolio value
+ * @param appSettings Application settings to include in the export
+ * @returns Promise that resolves to a Blob containing the ZIP file
+ */
+export const createZipBlob = async (
+  trades: Trade[],
+  portfolioSettings?: PortfolioSettings,
+  portfolioValue?: number,
+  appSettings?: AppSettings
+): Promise<Blob> => {
+  const zip = new JSZip();
+  
+  // Create a folder for the trade data
+  const dataFolder = zip.folder('data');
+  
+  // Create a folder for screenshots
+  const screenshotsFolder = zip.folder('screenshots');
+  
+  if (!dataFolder || !screenshotsFolder) {
+    throw new Error('Failed to create folders in ZIP file');
+  }
+  
+  // Add trade data as JSON, but first clean up the screenshot data to only include references
+  const tradesWithScreenshotRefs = trades.map(trade => {
+    const { screenshots, ...tradeData } = trade;
+    
+    // If the trade has screenshots, replace the data with references
+    if (screenshots && screenshots.length > 0) {
+      return {
+        ...tradeData,
+        screenshots: screenshots.map(screenshot => ({
+          id: screenshot.id,
+          timestamp: screenshot.timestamp,
+          label: screenshot.label,
+          type: screenshot.type,
+          filename: `${screenshot.id}.png` // Reference to the screenshot file
+        }))
+      };
+    }
+    
+    return tradeData;
+  });
+  
+  // Create the export data object with trades and portfolio information
+  const exportData = {
+    trades: tradesWithScreenshotRefs,
+    portfolioSettings,
+    portfolioValue,
+    appSettings,
+    exportDate: new Date().toISOString()
+  };
+  
+  // Add the export data to the ZIP file
+  dataFolder.file('trades.json', JSON.stringify(exportData, null, 2));
+  
+  // Add screenshots to the ZIP file
+  for (const trade of trades) {
+    if (trade.screenshots && trade.screenshots.length > 0) {
+      for (const screenshot of trade.screenshots) {
+        // Extract the base64 data (remove the data:image/png;base64, prefix)
+        const base64Data = screenshot.data.split(',')[1];
+        
+        // Add the screenshot to the ZIP file
+        screenshotsFolder.file(`${screenshot.id}.png`, base64Data, { base64: true });
+      }
+    }
+  }
+  
+  // Generate and return the ZIP file as a blob
+  return await zip.generateAsync({ type: 'blob' });
 }; 
