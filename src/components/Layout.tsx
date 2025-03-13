@@ -20,7 +20,8 @@ import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   AddCircle as AddIcon,
-  List as ListIcon
+  List as ListIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -44,6 +45,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Add Trade', icon: <AddIcon />, path: '/add-trade' },
     { text: 'Trade List', icon: <ListIcon />, path: '/trades' },
+    { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
 
   const drawer = (

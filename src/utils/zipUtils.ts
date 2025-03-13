@@ -1,13 +1,23 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { Trade, Screenshot } from '../types';
+import { Trade, Screenshot, PortfolioSettings } from '../types';
+import { AppSettings } from '../context/TradeContext';
 
 /**
- * Creates and downloads a ZIP file containing trade data and screenshots
+ * Creates and downloads a ZIP file containing trade data, portfolio settings, and screenshots
  * @param trades Array of trades to export
  * @param filename Name of the ZIP file to download
+ * @param portfolioSettings Portfolio settings to include in the export
+ * @param portfolioValue Current portfolio value
+ * @param appSettings Application settings to include in the export
  */
-export const exportTradesAsZip = async (trades: Trade[], filename: string = 'trades-with-screenshots.zip'): Promise<void> => {
+export const exportTradesAsZip = async (
+  trades: Trade[], 
+  filename: string = 'trades-with-screenshots.zip',
+  portfolioSettings?: PortfolioSettings,
+  portfolioValue?: number,
+  appSettings?: AppSettings
+): Promise<void> => {
   const zip = new JSZip();
   
   // Create a folder for the trade data
@@ -41,8 +51,17 @@ export const exportTradesAsZip = async (trades: Trade[], filename: string = 'tra
     return tradeData;
   });
   
-  // Add the trade data to the ZIP file
-  dataFolder.file('trades.json', JSON.stringify(tradesWithScreenshotRefs, null, 2));
+  // Create the export data object with trades and portfolio information
+  const exportData = {
+    trades: tradesWithScreenshotRefs,
+    portfolioSettings,
+    portfolioValue,
+    appSettings,
+    exportDate: new Date().toISOString()
+  };
+  
+  // Add the export data to the ZIP file
+  dataFolder.file('trades.json', JSON.stringify(exportData, null, 2));
   
   // Add screenshots to the ZIP file
   for (const trade of trades) {
@@ -67,9 +86,14 @@ export const exportTradesAsZip = async (trades: Trade[], filename: string = 'tra
 /**
  * Imports trades from a ZIP file containing trade data and screenshots
  * @param file ZIP file to import
- * @returns Promise that resolves to an array of imported trades
+ * @returns Promise that resolves to an object containing imported trades, portfolio settings, and app settings
  */
-export const importTradesFromZip = async (file: File): Promise<Trade[]> => {
+export const importTradesFromZip = async (file: File): Promise<{
+  trades: Trade[];
+  portfolioSettings?: PortfolioSettings;
+  portfolioValue?: number;
+  appSettings?: AppSettings;
+}> => {
   const zip = await JSZip.loadAsync(file);
   
   // Extract the trade data
@@ -79,7 +103,24 @@ export const importTradesFromZip = async (file: File): Promise<Trade[]> => {
   }
   
   const tradesJson = await tradesFile.async('string');
-  const trades: Trade[] = JSON.parse(tradesJson);
+  const importedData = JSON.parse(tradesJson);
+  
+  // Handle both old and new format
+  let trades: Trade[];
+  let portfolioSettings: PortfolioSettings | undefined;
+  let portfolioValue: number | undefined;
+  let appSettings: AppSettings | undefined;
+  
+  if (Array.isArray(importedData)) {
+    // Old format - just an array of trades
+    trades = importedData;
+  } else {
+    // New format - object with trades and portfolio settings
+    trades = importedData.trades || [];
+    portfolioSettings = importedData.portfolioSettings;
+    portfolioValue = importedData.portfolioValue;
+    appSettings = importedData.appSettings;
+  }
   
   // Process each trade to load its screenshots
   for (const trade of trades) {
@@ -110,5 +151,5 @@ export const importTradesFromZip = async (file: File): Promise<Trade[]> => {
     }
   }
   
-  return trades;
+  return { trades, portfolioSettings, portfolioValue, appSettings };
 }; 

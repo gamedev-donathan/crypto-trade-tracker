@@ -1,93 +1,63 @@
-# Cryptocurrency Trade Tracker
+# Crypto Trade Tracker
 
-A React application for tracking cryptocurrency trades using Mark Minervini risk management strategies.
+A comprehensive application for tracking cryptocurrency trades, analyzing portfolio performance, and managing your trading history.
 
 ## Features
 
-- **Trade Management**: Add, edit, and delete cryptocurrency trades
-- **Risk Analysis**: Calculate and display risk percentage based on entry price, stop loss, and position size
-- **Stop Loss Management**: Update stop loss levels for active trades
-- **Performance Tracking**: View win/loss ratio, profit factor, and overall trading performance
-- **Bitcoin Comparison**: Compare your trading performance against a simple Bitcoin DCA (Dollar Cost Averaging) strategy
-- **CoinGecko Integration**: Search and select from thousands of cryptocurrencies using the CoinGecko API
-- **Flexible Quantity Input**: Enter position size in either coins or dollars
+### Core Features
+- **Trade Management**: Add, edit, and close cryptocurrency trades
+- **Portfolio Analysis**: View portfolio performance over time with charts and statistics
+- **Trade List**: View and filter all your trades in a sortable table
+- **Screenshots**: Attach screenshots to your trades for reference
+- **Import/Export**: Backup and restore your trade data
+
+### New Features
+- **Auto-Save**: Automatically save your trade data at regular intervals
+- **Dark Mode**: Toggle between light and dark themes
+- **Portfolio Settings**: Configure your portfolio name, description, and other settings
+- **Customizable Settings**: Set default currency, valuation mode, and decimal precision
+
+## Settings
+
+### Application Settings
+- **Dark Mode**: Toggle between light and dark themes
+- **Default Currency**: Set your preferred currency (USD, EUR, GBP, etc.)
+- **Default Valuation Mode**: Choose between USD value or coin amount display
+- **Decimal Precision**: Set the number of decimal places for cryptocurrency amounts
+
+### Portfolio Settings
+- **Portfolio Name**: Give your portfolio a name
+- **Description**: Add a description for your portfolio
+- **Initial Balance**: Set your starting balance
+- **Start Date**: Set the start date for your portfolio
+
+### Auto-Save Settings
+- **Enable Auto-Save**: Toggle automatic saving of your trade data
+- **Auto-Save Interval**: Set how often your data is automatically saved (in minutes)
+- **Save Directory**: Choose where your backup files are saved
+- **Manual Save**: Trigger a manual save at any time
+
+## Technical Details
+
+### File System Access
+The application uses the modern File System Access API when available, with fallbacks for browsers that don't support it. This allows for:
+- Selecting directories for auto-save
+- Saving files directly to your file system
+- Improved user experience with native file dialogs
+
+### Data Format
+Trade data is exported in a structured ZIP format that includes:
+- JSON data file with all trade information
+- Portfolio settings and current value
+- Screenshots associated with trades
+- Export timestamp for reference
 
 ## Getting Started
 
-### Prerequisites
-
-- Node.js (v14 or higher)
-- npm or yarn
-
-### Installation
-
 1. Clone the repository
-```bash
-git clone https://github.com/gamedev-donathan/crypto-trade-tracker
-cd crypto-trade-tracker
-```
-
-2. Install dependencies
-```bash
-npm install
-```
-
-3. Start the development server
-```bash
-npm start
-```
-
-The application will be available at http://localhost:3000
-
-## Usage
-
-### Dashboard
-
-The dashboard provides an overview of your trading performance, including:
-- Total number of trades
-- Win rate
-- Total profit/loss
-- Profit factor
-- Win/loss ratio chart
-- Comparison with Bitcoin DCA strategy
-
-### Adding a Trade
-
-To add a new trade:
-1. Navigate to the "Add Trade" page
-2. Select position type (Long or Short)
-3. Search for a cryptocurrency using the CoinGecko API or enter a custom one
-4. Enter the entry price (auto-populated for selected cryptocurrencies)
-5. Enter the quantity and select the quantity type (coins or dollars)
-6. Set your stop loss
-7. Add optional notes
-8. Review the risk analysis (risk should ideally be below 2% of portfolio value)
-9. Click "Add Trade"
-
-### Managing Trades
-
-On the "Trade List" page, you can:
-- View all active and closed trades
-- Update stop loss levels for active trades
-- Close trades by entering an exit price
-- Delete trades
-- See equivalent coin amounts for trades entered in dollars
-
-## Risk Management
-
-This application implements Mark Minervini's risk management principles:
-- Risk per trade is calculated as a percentage of your total portfolio value
-- The application highlights when risk exceeds 2% of your portfolio
-- Stop loss management helps maintain discipline and limit losses
-
-## Technologies Used
-
-- React
-- TypeScript
-- Material-UI
-- React Router
-- Chart.js
-- CoinGecko API
+2. Install dependencies with `npm install`
+3. Start the development server with `npm start`
+4. Access the application at `http://localhost:3000`
 
 ## License
 

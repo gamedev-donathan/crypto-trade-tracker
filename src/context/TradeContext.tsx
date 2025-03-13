@@ -19,6 +19,15 @@ export const usePortfolio = () => {
   return context;
 };
 
+// Add AppSettings interface
+export interface AppSettings {
+  darkMode: boolean;
+  defaultCurrency: string;
+  defaultValuationMode: 'usd' | 'coin';
+  decimalPrecision: number;
+}
+
+// Update TradeContextType to include app settings
 interface TradeContextType {
   trades: Trade[];
   addTrade: (trade: Omit<Trade, 'id' | 'isActive'>) => void;
@@ -49,6 +58,8 @@ interface TradeContextType {
   setPortfolioSettings: (settings: PortfolioSettings) => void;
   getPortfolioPerformance: (timeRange: TimePeriod) => PortfolioPerformance[];
   calculateCurrentPortfolioValue: () => number;
+  appSettings: AppSettings;
+  setAppSettings: (settings: AppSettings) => void;
 }
 
 const TradeContext = createContext<TradeContextType | undefined>(undefined);
@@ -118,6 +129,19 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
       startDate: defaultDate.toISOString().split('T')[0],
       initialBalance: portfolioValue
     };
+  });
+
+  // Initialize app settings from localStorage
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
+    const savedSettings = localStorage.getItem('appSettings');
+    return savedSettings 
+      ? JSON.parse(savedSettings) 
+      : {
+          darkMode: false,
+          defaultCurrency: 'USD',
+          defaultValuationMode: 'usd',
+          decimalPrecision: 8
+        };
   });
 
   // Calculate current portfolio value based on trades
@@ -228,6 +252,13 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
   useEffect(() => {
     localStorage.setItem('portfolioSettings', JSON.stringify(portfolioSettings));
   }, [portfolioSettings]);
+
+  useEffect(() => {
+    localStorage.setItem('appSettings', JSON.stringify(appSettings));
+    
+    // Dispatch a custom event to notify other components of the change
+    window.dispatchEvent(new Event('app-settings-changed'));
+  }, [appSettings]);
 
   const addTrade = (trade: Omit<Trade, 'id' | 'isActive'>) => {
     const newTrade: Trade = {
@@ -1360,41 +1391,43 @@ export const TradeProvider: React.FC<TradeProviderProps> = ({ children }) => {
     }
   };
 
+  const contextValue: TradeContextType = {
+    trades,
+    addTrade,
+    updateTrade,
+    closeTrade,
+    closePartialTrade,
+    setTrailingStop,
+    updateTrailingStops,
+    updateStopLoss,
+    deleteTrade,
+    importTrades,
+    setTrades,
+    calculateRisk,
+    getTradeStats,
+    getBitcoinComparison,
+    yearStartBalance,
+    setYearStartBalance,
+    monthStartBalance,
+    setMonthStartBalance,
+    quarterStartBalance,
+    setQuarterStartBalance,
+    allTimeStartBalance,
+    setAllTimeStartBalance,
+    calculatePositionFromRisk,
+    calculateStopLossFromRisk,
+    calculatePositionFromDollarRisk,
+    portfolioSettings,
+    setPortfolioSettings: updatePortfolioSettings,
+    getPortfolioPerformance,
+    calculateCurrentPortfolioValue,
+    appSettings,
+    setAppSettings,
+  };
+
   return (
     <PortfolioContext.Provider value={{ portfolioValue, setPortfolioValue }}>
-      <TradeContext.Provider
-        value={{
-          trades,
-          addTrade,
-          updateTrade,
-          closeTrade,
-          closePartialTrade,
-          setTrailingStop,
-          updateTrailingStops,
-          updateStopLoss,
-          deleteTrade,
-          importTrades,
-          setTrades,
-          calculateRisk,
-          getTradeStats,
-          getBitcoinComparison,
-          yearStartBalance,
-          setYearStartBalance,
-          monthStartBalance,
-          setMonthStartBalance,
-          quarterStartBalance,
-          setQuarterStartBalance,
-          allTimeStartBalance,
-          setAllTimeStartBalance,
-          calculatePositionFromRisk,
-          calculateStopLossFromRisk,
-          calculatePositionFromDollarRisk,
-          portfolioSettings,
-          setPortfolioSettings: updatePortfolioSettings,
-          getPortfolioPerformance,
-          calculateCurrentPortfolioValue
-        }}
-      >
+      <TradeContext.Provider value={contextValue}>
         {children}
       </TradeContext.Provider>
     </PortfolioContext.Provider>

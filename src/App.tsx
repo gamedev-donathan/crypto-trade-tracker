@@ -1,76 +1,59 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-
-import { TradeProvider } from './context/TradeContext';
-import Layout from './components/Layout';
+import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import Dashboard from './components/Dashboard';
 import TradeForm from './components/TradeForm';
 import TradeList from './components/TradeList';
+import Settings from './components/Settings';
+import Layout from './components/Layout';
+import { TradeProvider, useTrades } from './context/TradeContext';
 
-// Create a theme
-const theme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      main: '#3f51b5',
-    },
-    secondary: {
-      main: '#f50057',
-    },
-    background: {
-      default: '#121212',
-      paper: '#1e1e1e',
-    },
-  },
-  typography: {
-    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
-    h4: {
-      fontWeight: 600,
-    },
-    h5: {
-      fontWeight: 500,
-    },
-    h6: {
-      fontWeight: 500,
-    },
-  },
-  components: {
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
+// Theme component that uses the context
+const ThemedApp: React.FC = () => {
+  const { appSettings } = useTrades();
+  
+  // Create theme based on dark mode setting
+  const theme = useMemo(() => 
+    createTheme({
+      palette: {
+        mode: appSettings.darkMode ? 'dark' : 'light',
+        primary: {
+          main: '#1976d2',
+        },
+        secondary: {
+          main: '#dc004e',
+        },
+        background: {
+          default: appSettings.darkMode ? '#121212' : '#f5f5f5',
+          paper: appSettings.darkMode ? '#1e1e1e' : '#ffffff',
         },
       },
-    },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-        },
-      },
-    },
-  },
-});
-
-function App() {
+    }),
+  [appSettings.darkMode]);
+  
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <TradeProvider>
-        <Router>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/add-trade" element={<TradeForm />} />
-              <Route path="/trades" element={<TradeList />} />
-            </Routes>
-          </Layout>
-        </Router>
-      </TradeProvider>
+      <Router>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/add-trade" element={<TradeForm />} />
+            <Route path="/trades" element={<TradeList />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </Layout>
+      </Router>
     </ThemeProvider>
   );
-}
+};
+
+const App: React.FC = () => {
+  return (
+    <TradeProvider>
+      <ThemedApp />
+    </TradeProvider>
+  );
+};
 
 export default App;

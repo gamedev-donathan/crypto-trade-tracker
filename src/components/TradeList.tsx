@@ -59,6 +59,7 @@ import { Trade, PartialExit, Screenshot } from '../types';
 import ScreenshotUploader from './ScreenshotUploader';
 import { exportTradesAsZip } from '../utils/zipUtils';
 import JSZip from 'jszip';
+import { importTradesFromZip } from '../utils/zipUtils';
 
 // Add a helper function to format numbers to avoid scientific notation
 const formatFullDecimal = (num: number): string => {
@@ -73,7 +74,22 @@ const formatFullDecimal = (num: number): string => {
 };
 
 const TradeList: React.FC = () => {
-  const { trades, updateStopLoss, closeTrade, closePartialTrade, setTrailingStop, deleteTrade, importTrades, updateTrade, portfolioValue, setPortfolioValue } = useTrades();
+  const { 
+    trades, 
+    updateStopLoss, 
+    closeTrade, 
+    closePartialTrade, 
+    setTrailingStop, 
+    deleteTrade, 
+    importTrades, 
+    updateTrade, 
+    portfolioValue, 
+    setPortfolioValue,
+    portfolioSettings,
+    setPortfolioSettings,
+    appSettings,
+    setAppSettings
+  } = useTrades();
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -484,93 +500,34 @@ const TradeList: React.FC = () => {
     if (fileInputRef.current && fileInputRef.current.files && fileInputRef.current.files.length > 0) {
       const file = fileInputRef.current.files[0];
 
-      // Create a new JSZip instance
-      const jszip = new JSZip();
-
       try {
-        const zip = await jszip.loadAsync(file);
-
-        // First, try to find and parse the trades.json file
-        // Look for the file in the 'data' folder where it's stored during export
-        const tradesFile = zip.file('data/trades.json');
-        if (!tradesFile) {
-          setSnackbarMessage('No trades.json file found in the ZIP archive');
-          setSnackbarSeverity('error');
-          setSnackbarOpen(true);
-          return;
-        }
-
-        const tradesContent = await tradesFile.async('string');
-        const importedData = JSON.parse(tradesContent);
-
-        // Check if importedData is an array of trades or an object with a trades property
-        let tradesArray: Trade[];
-
-        if (Array.isArray(importedData)) {
-          // Direct array of trades
-          tradesArray = importedData;
-        } else if (importedData && typeof importedData === 'object' && Array.isArray(importedData.trades)) {
-          // Object with a trades property
-          tradesArray = importedData.trades;
-
-          // Check for portfolio value
-          if (typeof importedData.portfolioValue === 'number') {
-            setPortfolioValue(importedData.portfolioValue);
-          }
-        } else {
-          setSnackbarMessage('Invalid trades data format in the ZIP archive');
-          setSnackbarSeverity('error');
-          setSnackbarOpen(true);
-          return;
-        }
-
-        // Process screenshots for each trade
-        const processedTrades = await Promise.all(tradesArray.map(async (trade: Trade) => {
-          // Process entry screenshots
-          if (trade.screenshots && Array.isArray(trade.screenshots)) {
-            const processedScreenshots = await Promise.all(trade.screenshots.map(async (screenshot: Screenshot) => {
-              if (screenshot.filename) {
-                // Try to find the screenshot file in the screenshots folder
-                const screenshotFile = zip.file(`screenshots/${screenshot.filename}`);
-                if (screenshotFile) {
-                  // Get the blob data and convert to base64
-                  const blobData = await screenshotFile.async('blob');
-                  return new Promise<Screenshot>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                      resolve({
-                        ...screenshot,
-                        data: reader.result as string
-                      });
-                    };
-                    reader.readAsDataURL(blobData);
-                  });
-                }
-              }
-              return screenshot;
-            }));
-
-            trade.screenshots = processedScreenshots;
-          }
-
-          // Process exit screenshots for partial exits
-          if (trade.partialExits && Array.isArray(trade.partialExits)) {
-            // Process partial exits without trying to access screenshots property
-            const processedPartialExits = await Promise.all(trade.partialExits.map(async (exit: PartialExit) => {
-              // Return the exit without trying to process screenshots
-              return exit;
-            }));
-
-            trade.partialExits = processedPartialExits;
-          }
-
-          return trade;
-        }));
+        // Use the importTradesFromZip utility
+        const { 
+          trades: importedTrades, 
+          portfolioSettings: importedSettings, 
+          portfolioValue: importedPortfolioValue,
+          appSettings: importedAppSettings 
+        } = await importTradesFromZip(file);
 
         // Update the trades in context
-        importTrades(processedTrades);
+        importTrades(importedTrades);
 
-        setSnackbarMessage(`Successfully imported ${processedTrades.length} trades with screenshots from ZIP archive`);
+        // Update portfolio settings if available
+        if (importedSettings) {
+          setPortfolioSettings(importedSettings);
+        }
+
+        // Update portfolio value if available
+        if (importedPortfolioValue) {
+          setPortfolioValue(importedPortfolioValue);
+        }
+        
+        // Update app settings if available
+        if (importedAppSettings) {
+          setAppSettings(importedAppSettings);
+        }
+
+        setSnackbarMessage(`Successfully imported ${importedTrades.length} trades with screenshots from ZIP archive`);
         setSnackbarSeverity('success');
         setSnackbarOpen(true);
 
@@ -692,12 +649,142 @@ const TradeList: React.FC = () => {
   // Handle export as ZIP
   const handleExportZIP = async () => {
     try {
-      const filename = `crypto-trades-with-screenshots-${new Date().toISOString().split('T')[0]}.zip`;
-      await exportTradesAsZip(trades, filename);
-
-      setSnackbarMessage('Successfully exported trades with screenshots as ZIP');
-      setSnackbarSeverity('success');
-      setSnackbarOpen(true);
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];
+      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+      const filename = `crypto-trades-backup-${dateStr}-${timeStr}.zip`;
+      
+      // Check if auto-save settings exist
+      const savedAutoSaveSettings = localStorage.getItem('autoSaveSettings');
+      const autoSaveSettings = savedAutoSaveSettings ? JSON.parse(savedAutoSaveSettings) : null;
+      
+      // Create a blob for the ZIP file
+      const jszip = await import('jszip');
+      const JSZip = jszip.default;
+      
+      const zip = new JSZip();
+      
+      // Create a folder for the trade data
+      const dataFolder = zip.folder('data');
+      
+      // Create a folder for screenshots
+      const screenshotsFolder = zip.folder('screenshots');
+      
+      if (!dataFolder || !screenshotsFolder) {
+        throw new Error('Failed to create folders in ZIP file');
+      }
+      
+      // Add trade data as JSON, but first clean up the screenshot data to only include references
+      const tradesWithScreenshotRefs = trades.map(trade => {
+        const { screenshots, ...tradeData } = trade;
+        
+        // If the trade has screenshots, replace the data with references
+        if (screenshots && screenshots.length > 0) {
+          return {
+            ...tradeData,
+            screenshots: screenshots.map(screenshot => ({
+              id: screenshot.id,
+              timestamp: screenshot.timestamp,
+              label: screenshot.label,
+              type: screenshot.type,
+              filename: `${screenshot.id}.png` // Reference to the screenshot file
+            }))
+          };
+        }
+        
+        return tradeData;
+      });
+      
+      // Create the export data object with trades and portfolio information
+      const exportData = {
+        trades: tradesWithScreenshotRefs,
+        portfolioSettings,
+        portfolioValue,
+        appSettings,
+        exportDate: now.toISOString()
+      };
+      
+      // Add the export data to the ZIP file
+      dataFolder.file('trades.json', JSON.stringify(exportData, null, 2));
+      
+      // Add screenshots to the ZIP file
+      for (const trade of trades) {
+        if (trade.screenshots && trade.screenshots.length > 0) {
+          for (const screenshot of trade.screenshots) {
+            // Extract the base64 data (remove the data:image/png;base64, prefix)
+            const base64Data = screenshot.data.split(',')[1];
+            
+            // Add the screenshot to the ZIP file
+            screenshotsFolder.file(`${screenshot.id}.png`, base64Data, { base64: true });
+          }
+        }
+      }
+      
+      // Generate the ZIP file as a blob
+      const blob = await zip.generateAsync({ type: 'blob' });
+      
+      // Save the file using the File System Access API if available and if auto-save is enabled
+      if (autoSaveSettings?.enabled && autoSaveSettings?.filePath && 'showSaveFilePicker' in window) {
+        try {
+          // @ts-ignore - TypeScript doesn't have types for the File System Access API yet
+          const fileHandle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{
+              description: 'ZIP Files',
+              accept: {'application/zip': ['.zip']},
+            }],
+          });
+          
+          // Create a writable stream
+          const writable = await fileHandle.createWritable();
+          
+          // Write the blob to the file
+          await writable.write(blob);
+          
+          // Close the file
+          await writable.close();
+          
+          // Update last save time in auto-save settings
+          if (autoSaveSettings) {
+            autoSaveSettings.lastSaveTime = now.toISOString();
+            localStorage.setItem('autoSaveSettings', JSON.stringify(autoSaveSettings));
+          }
+          
+          setSnackbarMessage(`Successfully exported trades to ${fileHandle.name}`);
+          setSnackbarSeverity('success');
+          setSnackbarOpen(true);
+        } catch (error) {
+          // User might have cancelled the save dialog
+          console.error('Error saving file:', error);
+          if (error instanceof Error && error.name !== 'AbortError') {
+            setSnackbarMessage(`Export failed: ${error.message}`);
+            setSnackbarSeverity('error');
+            setSnackbarOpen(true);
+          }
+        }
+      } else {
+        // Fallback for browsers that don't support the File System Access API
+        // or if auto-save is not enabled
+        // Just trigger a download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        // Update last save time in auto-save settings if enabled
+        if (autoSaveSettings?.enabled) {
+          autoSaveSettings.lastSaveTime = now.toISOString();
+          localStorage.setItem('autoSaveSettings', JSON.stringify(autoSaveSettings));
+        }
+        
+        setSnackbarMessage('Successfully exported trades with screenshots as ZIP');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+      }
 
       // Close the export menu
       handleExportClose();
